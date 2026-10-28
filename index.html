@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#04070f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="星空">
+<meta name="application-name" content="星空とプラネタリウム">
+<meta name="description" content="東京の夜空をゆっくり眺める、鑑賞用のプラネタリウム。星座をめぐる自動ツアー、天の川、流れ星。">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>星空とプラネタリウム</title>
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#04070f;overscroll-behavior:none;touch-action:none;
+-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;position:fixed;inset:0;
+font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif}
+canvas{position:fixed;left:0;top:0;width:100%;height:100%;display:block;touch-action:none}
+body.idle{cursor:none}
+#safe{position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+#clock{position:fixed;left:0;right:0;text-align:center;color:rgba(220,230,255,.62);font-size:11px;letter-spacing:.28em;padding-left:.28em;pointer-events:none;text-shadow:0 0 8px rgba(0,0,0,.7);transition:opacity 1.2s}
+#label{position:fixed;left:0;right:0;text-align:center;color:#fff;pointer-events:none;opacity:0;transition:opacity 1.6s ease;text-shadow:0 1px 16px rgba(0,0,0,.75),0 0 3px rgba(0,0,0,.5);padding:0 22px;box-sizing:border-box}
+#label.on{opacity:1;transition:opacity .7s ease}
+#label::before{content:'';position:absolute;left:0;right:0;top:-34px;bottom:-30px;z-index:-1;background:radial-gradient(ellipse 62% 55% at 50% 50%,rgba(2,5,14,.62),rgba(2,5,14,0));pointer-events:none}
+#lname{font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP","Noto Serif CJK JP",serif;font-size:27px;letter-spacing:.32em;padding-left:.32em;font-weight:300}
+#lname{text-wrap:balance}
+#lsub{font-size:11px;letter-spacing:.2em;margin-top:7px;opacity:.78}
+#lnote{text-wrap:balance;word-break:normal;word-break:auto-phrase;overflow-wrap:anywhere;line-break:strict;font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP","Noto Serif CJK JP",serif;font-size:13px;letter-spacing:.1em;line-height:1.85;margin:10px auto 0;max-width:30em;opacity:.88}
+#bar{position:fixed;left:0;right:0;display:flex;justify-content:center;flex-wrap:wrap;gap:8px;padding:0 12px;box-sizing:border-box;opacity:0;transition:opacity 1s ease;pointer-events:none}
+#bar.on{opacity:1;transition:opacity .35s ease;pointer-events:auto}
+#bar button{font:inherit;font-size:12.5px;letter-spacing:.1em;color:rgba(255,255,255,.92);background:rgba(16,22,40,.45);border:1px solid rgba(190,205,255,.25);
+border-radius:999px;padding:8px 14px;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);cursor:pointer;outline:none;-webkit-appearance:none;appearance:none;touch-action:manipulation;white-space:nowrap}
+#bar button.off{color:rgba(255,255,255,.5);border-color:rgba(190,205,255,.12)}
+#bar button:active{background:rgba(255,255,255,.28)}
+#hint{position:fixed;left:0;right:0;text-align:center;color:rgba(255,255,255,.85);font-size:12px;letter-spacing:.14em;pointer-events:none;opacity:0;transition:opacity 1.5s ease;text-shadow:0 1px 8px rgba(0,0,0,.7)}
+#hint.on{opacity:1}
+@media (max-width:480px){#lname{font-size:21px;letter-spacing:.16em;padding-left:.16em}#lnote{font-size:12.5px;letter-spacing:.06em}#bar button{font-size:12px;padding:8px 12px}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="safe"></div>
+<div id="clock"></div>
+<div id="label"><div id="lname"></div><div id="lsub"></div><div id="lnote"></div></div>
+<div id="hint">ドラッグで見まわし ・ ピンチで拡大 ・ 星をタップで名前</div>
+<div id="bar"><button id="bLines" type="button">星座線</button><button id="bNames" type="button">星座名</button><button id="bSpeed" type="button">早送り</button><button id="bSnd" type="button">音 ON</button><button id="bTour" type="button">ツアー</button><button id="bSeason" type="button">今夜</button></div>
+<script>
+/* ===================== catalog ===================== */
+// key|日本語名|RA(h m s, J2000)|Dec(° ' ")|V等級|B-V|星座
+const CAT=`
+betelgeuse|ベテルギウス|5 55 10.3|+7 24 25|0.42|1.85|Ori
+rigel|リゲル|5 14 32.3|-8 12 06|0.13|-0.03|Ori
+bellatrix|ベラトリックス|5 25 07.9|+6 20 59|1.64|-0.22|Ori
+mintaka|ミンタカ|5 32 00.4|-0 17 57|2.23|-0.18|Ori
+alnilam|アルニラム|5 36 12.8|-1 12 07|1.69|-0.18|Ori
+alnitak|アルニタク|5 40 45.5|-1 56 34|1.77|-0.21|Ori
+saiph|サイフ|5 47 45.4|-9 40 11|2.06|-0.17|Ori
+meissa|メイサ|5 35 08.3|+9 56 03|3.54|-0.16|Ori
+sirius|シリウス|6 45 08.9|-16 42 58|-1.46|0.00|CMa
+adhara|アダーラ|6 58 37.5|-28 58 20|1.50|-0.21|CMa
+wezen|ウェズン|7 08 23.5|-26 23 36|1.84|0.67|CMa
+mirzam|ミルザム|6 22 42.0|-17 57 22|1.98|-0.24|CMa
+aludra|アルドラ|7 24 05.7|-29 18 11|2.45|-0.08|CMa
+procyon|プロキオン|7 39 18.1|+5 13 30|0.34|0.42|CMi
+gomeisa|ゴメイサ|7 27 09.0|+8 17 22|2.89|-0.09|CMi
+pollux|ポルックス|7 45 18.9|+28 01 34|1.14|1.00|Gem
+castor|カストル|7 34 36.0|+31 53 18|1.58|0.03|Gem
+alhena|アルヘナ|6 37 42.7|+16 23 57|1.93|0.00|Gem
+tejat|テジャト|6 22 57.6|+22 30 49|2.88|1.64|Gem
+mebsuta|メブスタ|6 43 55.9|+25 07 52|3.06|1.38|Gem
+wasat|ワサト|7 20 07.4|+21 58 56|3.53|0.34|Gem
+aldebaran|アルデバラン|4 35 55.2|+16 30 33|0.85|1.54|Tau
+elnath|エルナト|5 26 17.5|+28 36 27|1.65|-0.13|Tau
+zetatau||5 37 38.7|+21 08 33|3.00|-0.20|Tau
+theta2tau||4 28 39.7|+15 52 15|3.40|0.18|Tau
+gammatau||4 19 47.6|+15 37 40|3.65|0.18|Tau
+delta1tau||4 22 56.1|+17 32 33|3.76|0.98|Tau
+epstau||4 28 37.0|+19 10 50|3.53|1.01|Tau
+alcyone|アルシオネ|3 47 29.1|+24 06 19|2.87|-0.09|Tau
+atlas|アトラス|3 49 09.7|+24 03 12|3.62|-0.08|Tau
+electra|エレクトラ|3 44 52.5|+24 06 48|3.70|-0.12|Tau
+maia|マイア|3 45 49.6|+24 22 04|3.87|-0.07|Tau
+merope|メローペ|3 46 19.6|+23 56 54|4.18|-0.06|Tau
+taygeta|タイゲタ|3 45 12.5|+24 28 02|4.30|-0.11|Tau
+pleione|プレイオネ|3 49 11.2|+24 08 12|5.05|-0.09|Tau
+capella|カペラ|5 16 41.4|+45 59 53|0.08|0.80|Aur
+menkalinan|メンカリナン|5 59 31.7|+44 56 51|1.90|0.03|Aur
+mahasim||5 59 43.3|+37 12 45|2.62|-0.08|Aur
+hassaleh||4 56 59.6|+33 09 58|2.69|1.53|Aur
+regulus|レグルス|10 08 22.3|+11 58 02|1.35|-0.11|Leo
+denebola|デネボラ|11 49 03.6|+14 34 19|2.14|0.09|Leo
+algieba|アルギエバ|10 19 58.4|+19 50 30|2.01|1.15|Leo
+zosma|ゾスマ|11 14 06.5|+20 31 25|2.56|0.12|Leo
+adhafera|アドヘラ|10 16 41.4|+23 25 02|3.44|0.31|Leo
+rasalas|ラサラス|9 52 45.8|+26 00 25|3.88|1.22|Leo
+algenubi||9 45 51.1|+23 46 27|2.98|0.81|Leo
+chertan||11 14 14.4|+15 25 46|3.33|-0.01|Leo
+spica|スピカ|13 25 11.6|-11 09 41|0.98|-0.23|Vir
+porrima|ポリマ|12 41 39.6|-1 26 58|2.74|0.36|Vir
+vindemiatrix|ビンデミアトリクス|13 02 10.6|+10 57 33|2.83|0.94|Vir
+zavijava||11 50 41.7|+1 45 53|3.61|0.55|Vir
+heze||13 34 41.6|-0 35 45|3.37|0.10|Vir
+arcturus|アークトゥルス|14 15 39.7|+19 10 57|-0.05|1.23|Boo
+izar|イザール|14 44 59.2|+27 04 27|2.70|0.97|Boo
+seginus|セギヌス|14 32 04.7|+38 18 30|3.03|0.19|Boo
+nekkar|ネッカル|15 01 56.8|+40 23 26|3.50|0.97|Boo
+muphrid|ムフリッド|13 54 41.1|+18 23 52|2.68|0.58|Boo
+alphecca|アルフェッカ|15 34 41.3|+26 42 53|2.23|-0.02|CrB
+antares|アンタレス|16 29 24.5|-26 25 55|0.96|1.83|Sco
+shaula|シャウラ|17 33 36.5|-37 06 14|1.63|-0.22|Sco
+sargas|サルガス|17 37 19.1|-42 59 52|1.87|0.40|Sco
+dschubba|ジュバ|16 00 20.0|-22 37 18|2.29|-0.12|Sco
+acrab|アクラブ|16 05 26.2|-19 48 19|2.62|-0.07|Sco
+epssco||16 50 09.8|-34 17 36|2.29|1.15|Sco
+lesath|レサト|17 30 45.8|-37 17 45|2.69|-0.22|Sco
+pisco||15 58 51.1|-26 06 51|2.89|-0.20|Sco
+sigsco||16 21 11.3|-25 35 34|2.89|0.13|Sco
+tausco||16 35 52.9|-28 12 58|2.82|-0.25|Sco
+mu1sco||16 51 52.2|-38 02 51|3.04|-0.20|Sco
+zeta2sco||16 54 35.0|-42 21 41|3.62|1.38|Sco
+etasco||17 12 09.1|-43 14 20|3.33|0.38|Sco
+kapsco||17 42 29.3|-39 01 48|2.41|-0.22|Sco
+iot1sco||17 47 35.1|-40 07 37|3.03|0.51|Sco
+kausaus|カウス・アウストラリス|18 24 10.3|-34 23 05|1.85|-0.03|Sgr
+nunki|ヌンキ|18 55 15.9|-26 17 48|2.02|-0.13|Sgr
+ascella|アスケラ|19 02 36.7|-29 52 49|2.60|0.08|Sgr
+kausmed|カウス・メディア|18 20 59.6|-29 49 41|2.70|1.38|Sgr
+kausbor|カウス・ボレアリス|18 27 58.2|-25 25 18|2.81|1.04|Sgr
+alnasl|アルナスル|18 05 48.5|-30 25 27|2.99|1.00|Sgr
+phisgr||18 45 39.7|-26 59 27|3.17|-0.11|Sgr
+tausgr||19 06 56.4|-27 40 14|3.32|1.02|Sgr
+vega|ベガ|18 36 56.3|+38 47 01|0.03|0.00|Lyr
+sheliak|シェリアク|18 50 04.8|+33 21 46|3.45|0.00|Lyr
+sulafat|スルファト|18 58 56.6|+32 41 22|3.25|-0.05|Lyr
+delta2lyr||18 54 30.3|+36 53 55|4.30|1.70|Lyr
+zeta1lyr||18 44 46.4|+37 36 18|4.36|0.20|Lyr
+deneb|デネブ|20 41 25.9|+45 16 49|1.25|0.09|Cyg
+sadr|サドル|20 22 13.7|+40 15 24|2.23|0.67|Cyg
+albireo|アルビレオ|19 30 43.3|+27 57 35|3.18|1.13|Cyg
+gienah|ギエナー|20 46 12.7|+33 58 13|2.48|1.03|Cyg
+fawaris|ファワリス|19 44 58.5|+45 07 51|2.87|-0.03|Cyg
+altair|アルタイル|19 50 47.0|+8 52 06|0.76|0.22|Aql
+tarazed|タラゼド|19 46 15.6|+10 36 48|2.72|1.52|Aql
+alshain|アルシャイン|19 55 18.8|+6 24 24|3.71|0.86|Aql
+deltaaql||19 25 29.9|+3 06 53|3.36|0.32|Aql
+zetaaql||19 05 24.6|+13 51 48|2.99|0.01|Aql
+thetaaql||20 11 18.3|-0 49 17|3.23|-0.07|Aql
+lambdaaql||19 06 14.9|-4 52 57|3.44|-0.10|Aql
+dubhe|ドゥーベ|11 03 43.7|+61 45 03|1.79|1.07|UMa
+merak|メラク|11 01 50.5|+56 22 57|2.37|-0.02|UMa
+phecda|フェクダ|11 53 49.7|+53 41 41|2.44|0.00|UMa
+megrez|メグレズ|12 15 25.6|+57 01 57|3.31|0.08|UMa
+alioth|アリオト|12 54 01.7|+55 57 35|1.77|-0.02|UMa
+mizar|ミザール|13 23 55.5|+54 55 31|2.27|0.02|UMa
+alkaid|アルカイド|13 47 32.4|+49 18 48|1.86|-0.10|UMa
+muscida||8 30 15.9|+60 43 05|3.36|0.85|UMa
+talitha||8 59 12.5|+48 02 31|3.14|0.19|UMa
+tania1||10 17 05.8|+42 54 52|3.45|0.03|UMa
+tania2||10 22 19.7|+41 29 58|3.05|1.59|UMa
+polaris|ポラリス|2 31 49.1|+89 15 51|1.98|0.60|UMi
+kochab|コカブ|14 50 42.3|+74 09 20|2.08|1.47|UMi
+pherkad|ペルカド|15 20 43.7|+71 50 02|3.05|0.05|UMi
+yildun||17 32 13.0|+86 35 11|4.36|0.06|UMi
+epsumi||16 45 58.2|+82 02 14|4.21|0.89|UMi
+zetaumi||15 44 03.5|+77 47 40|4.32|0.04|UMi
+etaumi||16 17 30.3|+75 45 19|4.95|0.40|UMi
+schedar|シェダル|0 40 30.4|+56 32 14|2.24|1.17|Cas
+caph|カフ|0 09 10.7|+59 08 59|2.27|0.34|Cas
+gammacas|ツィー|0 56 42.5|+60 43 00|2.47|-0.15|Cas
+ruchbah|ルクバー|1 25 48.9|+60 14 07|2.68|0.13|Cas
+segin|セギン|1 54 23.7|+63 40 13|3.37|-0.15|Cas
+alderamin|アルデラミン|21 18 34.8|+62 35 08|2.45|0.22|Cep
+alfirk|アルフィルク|21 28 39.6|+70 33 39|3.23|-0.22|Cep
+errai|エライ|23 39 20.9|+77 37 57|3.21|1.03|Cep
+iotacep||22 49 40.8|+66 12 02|3.52|1.50|Cep
+zetacep||22 10 51.3|+58 12 05|3.35|1.57|Cep
+markab|マルカブ|23 04 45.7|+15 12 19|2.49|-0.04|Peg
+scheat|シェアト|23 03 46.5|+28 04 58|2.42|1.67|Peg
+algenib|アルゲニブ|0 13 14.2|+15 11 01|2.83|-0.19|Peg
+enif|エニフ|21 44 11.2|+9 52 30|2.39|1.52|Peg
+homam||22 41 27.7|+10 49 53|3.40|-0.09|Peg
+matar||22 43 00.1|+30 13 17|2.94|0.86|Peg
+baham||22 10 11.9|+6 11 52|3.53|0.08|Peg
+alpheratz|アルフェラッツ|0 08 23.3|+29 05 26|2.06|-0.11|And
+mirach|ミラク|1 09 43.9|+35 37 14|2.05|1.58|And
+almach|アルマク|2 03 54.0|+42 19 47|2.26|1.37|And
+deltaand||0 39 19.7|+30 51 40|3.27|1.28|And
+mirfak|ミルファク|3 24 19.4|+49 51 40|1.79|0.48|Per
+algol|アルゴル|3 08 10.1|+40 57 20|2.12|-0.05|Per
+atik||3 54 07.9|+31 53 01|2.85|-0.20|Per
+epsper||3 57 51.2|+40 00 37|2.89|-0.18|Per
+gamper||3 04 47.8|+53 30 24|2.93|0.70|Per
+delper||3 42 55.5|+47 47 15|3.01|-0.13|Per
+zetahe||16 41 17.2|+31 36 10|2.81|0.65|Her
+etahe||16 42 53.9|+38 55 20|3.53|0.92|Her
+pihe||17 15 02.8|+36 48 33|3.16|1.44|Her
+epshe||17 00 17.4|+30 55 35|3.92|0.08|Her
+kornephoros|コルネフォロス|16 30 13.2|+21 29 23|2.77|0.94|Her
+eltanin|エルタニン|17 56 36.4|+51 29 20|2.23|1.52|Dra
+rastaban|ラスタバン|17 30 25.9|+52 18 05|2.79|0.99|Dra
+grumium||17 53 31.7|+56 52 22|3.75|1.18|Dra
+nudra||17 32 10.6|+55 10 22|4.88|0.00|Dra
+thuban|ツバン|14 04 23.3|+64 22 33|3.65|-0.05|Dra
+gienahcrv||12 15 48.4|-17 32 31|2.59|-0.11|Crv
+kraz||12 34 23.2|-23 23 48|2.65|0.89|Crv
+algorab||12 29 51.9|-16 30 55|2.95|-0.05|Crv
+minkar||12 10 07.5|-22 37 56|3.02|1.33|Crv
+hamal|ハマル|2 07 10.4|+23 27 45|2.00|1.15|Ari
+sheratan|シェラタン|1 54 38.4|+20 48 29|2.64|0.13|Ari
+fomalhaut|フォーマルハウト|22 57 39.0|-29 37 20|1.16|0.09|PsA
+canopus|カノープス|6 23 57.1|-52 41 44|-0.74|0.15|Car
+alphard|アルファルド|9 27 35.2|-8 39 31|1.98|1.44|Hya
+diphda|ディフダ|0 43 35.4|-17 59 12|2.04|1.02|Cet
+menkar|メンカル|3 02 16.8|+4 05 23|2.53|1.64|Cet
+rasalhague|ラスアルハゲ|17 34 56.1|+12 33 36|2.08|0.15|Oph
+sabik|サビク|17 10 22.7|-15 43 30|2.43|0.06|Oph
+cebalrai||17 43 28.4|+4 33 59|2.76|1.16|Oph
+zubenes|ズベンエスカマリ|15 17 00.4|-9 22 59|2.61|-0.11|Lib
+zubenelg|ズベンエルゲヌビ|14 50 52.7|-16 02 30|2.75|0.15|Lib
+sadalsuud|サダルスウド|21 31 33.5|-5 34 16|2.91|0.83|Aqr
+sadalmelik|サダルメリク|22 05 47.0|-0 19 11|2.96|0.97|Aqr
+dabih|ダビー|20 21 00.7|-14 46 53|3.08|0.79|Cap
+denebalgedi|デネブ・アルゲディ|21 47 02.4|-16 07 38|2.87|0.29|Cap
+`;
+// 星座: id, 日本語名, 線(キー連結 - で線, ,で区切り), 一言
+const CONS=[
+['Ori','オリオン座','meissa-betelgeuse,meissa-bellatrix,betelgeuse-alnitak,bellatrix-mintaka,mintaka-alnilam,alnilam-alnitak,alnitak-saiph,mintaka-rigel','冬の夜空の王者。三つ星の並びを目印に、赤いベテルギウスと青白いリゲルの色の違いを見比べてみましょう。'],
+['UMa','おおぐま座（北斗七星）','merak-dubhe,dubhe-megrez,megrez-phecda,phecda-merak,megrez-alioth,alioth-mizar,mizar-alkaid','北斗七星はおおぐまのお尻と尾。ひしゃくの先の2星の間隔を5倍のばすと、北極星に届きます。'],
+['UMi','こぐま座','polaris-yildun,yildun-epsumi,epsumi-zetaumi,zetaumi-kochab,kochab-pherkad,pherkad-etaumi,etaumi-zetaumi','尾の先で光るのが北極星。ほぼ動かないので、昔から旅人の道しるべでした。'],
+['Cas','カシオペヤ座','caph-schedar,schedar-gammacas,gammacas-ruchbah,ruchbah-segin','Wの形が目印のエチオピアの王妃。北極星をはさんで北斗七星の反対側にあります。'],
+['Cyg','はくちょう座','deneb-sadr,sadr-albireo,gienah-sadr,sadr-fawaris','天の川の上を南へ飛ぶ白鳥。大きな十字形から「北十字」とも呼ばれます。'],
+['Lyr','こと座','vega-zeta1lyr,zeta1lyr-sheliak,sheliak-sulafat,sulafat-delta2lyr,delta2lyr-zeta1lyr,delta2lyr-vega','おりひめ星ベガが輝く小さな琴。七夕の夜に、ひこ星アルタイルと向かい合います。'],
+['Aql','わし座','tarazed-altair,altair-alshain,altair-deltaaql,deltaaql-zetaaql,deltaaql-lambdaaql,alshain-thetaaql','ひこ星アルタイルを中心に、翼を広げたワシ。両隣の星とあわせて一直線に並びます。'],
+['Sco','さそり座','pisco-dschubba,acrab-dschubba,dschubba-sigsco,sigsco-antares,antares-tausco,tausco-epssco,epssco-mu1sco,mu1sco-zeta2sco,zeta2sco-etasco,etasco-sargas,sargas-iot1sco,iot1sco-kapsco,kapsco-shaula,shaula-lesath','真っ赤なアンタレスは「火星に対抗するもの」という意味。夏の南の空に釣り針のカーブが横たわります。'],
+['Leo','しし座','regulus-algieba,algieba-adhafera,adhafera-rasalas,rasalas-algenubi,algieba-zosma,zosma-denebola,denebola-chertan,chertan-regulus,zosma-chertan','「ししの大鎌」と呼ばれる逆さのはてなマークが頭。春の夜空にゆったりと座る百獣の王です。'],
+['Tau','おうし座','zetatau-aldebaran,aldebaran-theta2tau,theta2tau-gammatau,gammatau-delta1tau,delta1tau-epstau,epstau-elnath','オレンジ色のアルデバランは牡牛の目。すぐそばに、青白い星の群れ「すばる」が輝きます。'],
+['Gem','ふたご座','tejat-mebsuta,mebsuta-castor,castor-pollux,pollux-wasat,wasat-alhena,mebsuta-wasat','仲良しの兄弟、カストルとポルックス。12月にはふたご座流星群がここから流れ出します。'],
+['CMa','おおいぬ座','mirzam-sirius,sirius-wezen,wezen-adhara,wezen-aludra','全天でいちばん明るい恒星シリウスは、「焼き焦がすもの」という意味の名前を持ちます。'],
+['CMi','こいぬ座','procyon-gomeisa','小さな星座ですが、一等星プロキオンは約11光年の近い星。冬の大三角の一角です。'],
+['Peg','ペガスス座','markab-scheat,scheat-alpheratz,alpheratz-algenib,algenib-markab,markab-homam,homam-baham,baham-enif,scheat-matar','秋の四辺形は、空の広い暗がりの中でひときわ目立つ大きな四角形です。'],
+['And','アンドロメダ座','alpheratz-deltaand,deltaand-mirach,mirach-almach','秋の四辺形の角から伸びる鎖。ミラクのそばに、約250万光年かなたのアンドロメダ銀河が見えます。'],
+['Sgr','いて座','alnasl-kausmed,kausmed-kausbor,kausbor-phisgr,phisgr-nunki,nunki-tausgr,tausgr-ascella,ascella-kausaus,kausaus-alnasl,kausmed-kausaus,phisgr-ascella','ティーポットの形。その先に天の川銀河の中心があり、天の川がもっとも濃く輝きます。'],
+['Aur','ぎょしゃ座','capella-menkalinan,menkalinan-mahasim,mahasim-elnath,elnath-hassaleh,hassaleh-capella','黄色いカペラは、実は2組の連星。冬の夜空の高いところで、五角形を描きます。'],
+['Per','ペルセウス座','gamper-mirfak,mirfak-delper,delper-epsper,epsper-atik,mirfak-algol','「悪魔の星」アルゴルは、約3日ごとに明るさが変わります。8月にはペルセウス座流星群。'],
+['Her','ヘルクレス座','zetahe-etahe,etahe-pihe,pihe-epshe,epshe-zetahe,zetahe-kornephoros','四角形の「キーストーン」が目印。ここには約2万個の星が集まる球状星団M13があります。'],
+['Dra','りゅう座','rastaban-nudra,nudra-grumium,grumium-eltanin,eltanin-rastaban','北極星のまわりをとぐろ巻く竜。頭は小さな四角形で、ベガのすぐ近くにあります。'],
+['Boo','うしかい座','arcturus-izar,izar-seginus,seginus-nekkar,arcturus-muphrid','春の夕空で、オレンジに輝くアークトゥルス。北斗七星の柄のカーブをのばすと見つかります。'],
+['Vir','おとめ座','vindemiatrix-porrima,zavijava-porrima,porrima-heze,heze-spica','青白いスピカは「真珠星」。春の夜空で、しし座とからす座にはさまれて輝きます。'],
+['Crv','からす座','gienahcrv-algorab,algorab-kraz,kraz-minkar,minkar-gienahcrv','スピカの近くにある小さな四角形。春の夜空で見つけやすい、ちょっとした目印です。'],
+['Cep','ケフェウス座','alderamin-zetacep,zetacep-iotacep,iotacep-errai,errai-alfirk,alfirk-alderamin','カシオペヤ座の隣にある、家のような五角形。エチオピアの王様の姿です。'],
+['Ari','おひつじ座','hamal-sheratan','黄金の毛をもつ羊。ハマルは、古代の暦では春分点に近い星座でした。']
+];
+// 星のひとこと (key: [距離ly or 0, 豆知識])
+const NOTE={
+sirius:[8.6,'夜空でいちばん明るい恒星。冬の大三角の一角です。'],
+canopus:[310,'全天で2番目に明るい星。日本では低い南の空にわずかに顔を出します。'],
+arcturus:[37,'春の夜空に輝くオレンジ色の巨星。北斗七星の柄をのばすと見つかります。'],
+vega:[25,'おりひめ星。夏の大三角の一角で、約1万2千年後には北極星になります。'],
+capella:[43,'ぎょしゃ座の一等星。実は4つの星からなる連星系です。'],
+rigel:[860,'オリオンの足元に輝く青白い超巨星。太陽の約12万倍も明るい星です。'],
+procyon:[11.5,'「犬の前」という意味。冬の大三角の一角で、太陽系のお隣さんです。'],
+betelgeuse:[550,'赤く膨らんだ超巨星。いつか超新星爆発を起こすと考えられています。'],
+altair:[17,'ひこ星。毎秒約250kmという高速で自転し、ラグビーボールのように平たい星です。'],
+aldebaran:[65,'おうし座の赤い目。ヒアデス星団の手前にあるだけで、仲間ではありません。'],
+antares:[550,'さそりの心臓。赤く脈打つように見える超巨星です。'],
+spica:[250,'青白く輝く「真珠星」。春の大曲線の終点でもあります。'],
+pollux:[34,'ふたごの弟。近くの星で、惑星をもつことがわかっています。'],
+fomalhaut:[25,'秋の南の低い空にひとつだけ輝く「秋のひとつ星」です。'],
+deneb:[2600,'夏の大三角でいちばん遠い星。太陽の約20万倍も明るいといわれます。'],
+regulus:[79,'しし座の心臓。ほぼ黄道の上にあり、月や惑星がそばを通ります。'],
+castor:[51,'ふたごの兄。望遠鏡で見ると、6つの星が集まる多重星です。'],
+polaris:[430,'北極星。天の北極のすぐ近くにあり、一晩中ほとんど動きません。見える高さは、その土地の緯度とほぼ同じです。'],
+dubhe:[123,'北斗七星のひしゃくの先。メラクと結んで5倍のばすと北極星です。'],
+merak:[79,'ドゥーベと並んで「指極星」。北極星への道案内役です。'],
+phecda:[84,'北斗七星のひしゃくの底の角。'],
+megrez:[81,'北斗七星の中でいちばん暗い星。ひしゃくと柄の境目にあります。'],
+alioth:[83,'北斗七星の中で最も明るい星。柄の付け根に光ります。'],
+mizar:[83,'柄の真ん中にある二重星。となりの小さな星アルコルは、昔の視力検査にも使われました。'],
+alkaid:[104,'北斗七星の柄の先。ひしゃくの中で、ほかの星とは逆向きに動いています。'],
+kochab:[130,'北極星のまわりをまわる、こぐま座の2番目の明るい星。昔は北極星の役目をしていました。'],
+schedar:[230,'カシオペヤ座のWの一角。オレンジ色がかった星です。'],
+caph:[55,'カシオペヤ座のW、いちばん端の星。'],
+alpheratz:[97,'秋の四辺形の角。ペガスス座とアンドロメダ座が共有しています。'],
+mirach:[200,'赤みがかったアンドロメダのおなか。すぐ近くで、アンドロメダ銀河を探す目印になります。'],
+almach:[360,'アンドロメダの足元。望遠鏡では、オレンジと青の美しい二重星です。'],
+markab:[133,'秋の四辺形の南西の角。ペガサスの肩にあたります。'],
+scheat:[200,'秋の四辺形の北西の角。赤くて明るさが少し変わります。'],
+mirfak:[510,'ペルセウス座の中心になる星。まわりに散開星団があり、双眼鏡で美しく見えます。'],
+algol:[90,'「悪魔の星」。約3日ごとに、2つの星が重なり合って暗くなります。'],
+sadr:[1800,'はくちょうの胸にあたる星。天の川のまっただ中にあります。'],
+albireo:[430,'はくちょうのくちばし。望遠鏡では、金色と青色の宝石のような二重星です。'],
+shaula:[570,'さそりの毒針。尾の先で並んで光る2つの星の片方です。'],
+sargas:[270,'さそりの尾のカーブの底。日本では低い南の空に見えます。'],
+nunki:[225,'いて座の「ティーポットの取っ手」にあたる青白い星。'],
+kausaus:[140,'ティーポットの底。いて座でいちばん明るい星です。'],
+eltanin:[150,'りゅうの目。約1万年後には太陽系にいちばん近づく星のひとつといわれます。'],
+rasalhague:[49,'へびつかい座の頭。名前は「へびつかいの頭」という意味です。'],
+alphecca:[75,'かんむり座の宝石。半円を描く星の並びの中でひときわ明るい星です。'],
+alphard:[177,'うみへび座のただ一つの明るい星。「孤独な星」と呼ばれます。'],
+denebola:[36,'しし座の尾。春の大三角の一角です。'],
+algieba:[130,'ししの大鎌の中にある、美しい二重星。'],
+hamal:[66,'おひつじ座のいちばん明るい星。名前は「子羊」という意味です。'],
+diphda:[96,'くじら座でいちばん明るい星。秋の南の空でぽつんと光ります。'],
+adhara:[430,'おおいぬ座の2番目の明るい星。紫外線で見ると、全天で最も明るい星です。'],
+elnath:[130,'おうし座の角の先。ぎょしゃ座とも星を共有しています。'],
+alhena:[105,'ふたご座の足元で光る星。'],
+bellatrix:[250,'オリオンの左肩。「女戦士」という意味の名前を持ちます。'],
+alnitak:[1260,'オリオンの三つ星の東端。近くに馬頭星雲があります。'],
+alnilam:[2000,'三つ星の真ん中。遠く、とても明るい青い超巨星です。'],
+mintaka:[1200,'三つ星の西端。天の赤道のすぐ近くにあります。'],
+saiph:[650,'オリオンの右足。リゲルとほぼ同じ温度の青白い星です。'],
+izar:[202,'うしかい座の美しい二重星。名前は「ベルト」という意味です。'],
+alcyone:[440,'すばる（プレアデス星団）でいちばん明るい星。肉眼では6〜7個の星が見えます。'],
+menkalinan:[81,'ぎょしゃ座の肩。実は食をおこす連星です。'],
+enif:[690,'ペガサスの鼻先。オレンジ色の超巨星です。'],
+kornephoros:[139,'ヘルクレスの肩。名前は「棍棒を持つ者」の意味です。'],
+cebalrai:[82,'へびつかい座の星。名前は「羊飼いの犬」を意味します。'],
+sabik:[88,'へびつかい座の膝のあたりにある、青白い二重星。']
+};
+// 天体のトピック
+const OBJ_NOTE={
+M31:['アンドロメダ銀河（M31）','約250万光年かなた。肉眼で見える、いちばん遠い天体のひとつです。'],
+M45:['すばる（プレアデス星団）','おうし座の肩に光る青白い星の群れ。肉眼で6〜7個、実際は約1000個の仲間がいます。'],
+M42:['オリオン大星雲（M42）','オリオンの小三つ星の真ん中。約1300光年かなたで、いま星が生まれている場所です。'],
+MW:['天の川','私たちのいる天の川銀河を内側から見た姿。数千億の星が、淡い光の帯になって見えています。']
+};
+const ASTER=[
+['WT','冬の大三角','betelgeuse-sirius,sirius-procyon,procyon-betelgeuse','ベテルギウス、シリウス、プロキオンを結ぶ、冬の夜空の目印の三角形です。'],
+['ST','夏の大三角','vega-deneb,deneb-altair,altair-vega','ベガ、デネブ、アルタイル。七夕の夜、天の川をはさんで輝く夏の目印です。']
+];
+(()=>{'use strict';
+/* ===================== utilities ===================== */
+const $=id=>document.getElementById(id);
+const PI=Math.PI,TAU=PI*2,D2R=PI/180,R2D=180/PI;
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
+const store={get(k,d){try{const v=localStorage.getItem(k);return v===null?d:v}catch(e){return d}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const wrap180=a=>{a%=360;if(a>180)a-=360;if(a<-180)a+=360;return a};
+const angDiff=(a,b)=>{let d=(a-b)%TAU;if(d>PI)d-=TAU;if(d<-PI)d+=TAU;return d};
+/* ---- hash value noise (3D) ---- */
+function hash3(x,y,z){let h=Math.imul(x,374761393)+Math.imul(y,668265263)+Math.imul(z,2147483647)|0;h=Math.imul(h^h>>>13,1274126177);h^=h>>>16;return(h>>>0)/4294967296}
+function vnoise(x,y,z){const xi=Math.floor(x),yi=Math.floor(y),zi=Math.floor(z);let fx=x-xi,fy=y-yi,fz=z-zi;
+ fx=fx*fx*(3-2*fx);fy=fy*fy*(3-2*fy);fz=fz*fz*(3-2*fz);
+ const a=hash3(xi,yi,zi),b=hash3(xi+1,yi,zi),c=hash3(xi,yi+1,zi),d=hash3(xi+1,yi+1,zi),
+  e=hash3(xi,yi,zi+1),f=hash3(xi+1,yi,zi+1),g=hash3(xi,yi+1,zi+1),h=hash3(xi+1,yi+1,zi+1);
+ return lerp(lerp(lerp(a,b,fx),lerp(c,d,fx),fy),lerp(lerp(e,f,fx),lerp(g,h,fx),fy),fz)}
+function fbm3(x,y,z,o){let s=0,a=.5,f=1,n=0;for(let i=0;i<o;i++){s+=a*vnoise(x*f,y*f,z*f);n+=a;a*=.5;f*=2.03}return s/n}
+
+/* ===================== catalog ===================== */
+const CONNAME={Car:'りゅうこつ座',PsA:'みなみのうお座',Hya:'うみへび座',Cet:'くじら座',Oph:'へびつかい座',Lib:'てんびん座',Aqr:'みずがめ座',Cap:'やぎ座',CrB:'かんむり座'};
+const CONINFO={};for(const c of CONS)CONNAME[c[0]]=c[1].replace(/（.*）/,''),CONINFO[c[0]]=c;
+const PLEI=new Set(['alcyone','atlas','electra','maia','merope','taygeta','pleione']);
+function bv2rgb(bv){const T=[[-.3,155,176,255],[0,196,211,255],[.3,240,242,255],[.58,255,244,232],[.8,255,228,196],[1.15,255,200,140],[1.5,255,168,98],[2.0,255,132,80]];
+ if(bv<=T[0][0])return[T[0][1],T[0][2],T[0][3]];for(let i=1;i<T.length;i++){if(bv<=T[i][0]){const a=T[i-1],b=T[i],t=(bv-a[0])/(b[0]-a[0]);return[lerp(a[1],b[1],t),lerp(a[2],b[2],t),lerp(a[3],b[3],t)]}}const l=T[T.length-1];return[l[1],l[2],l[3]]}
+const real=[],byKey={};
+{const r=mulberry(77);
+for(const line of CAT.trim().split('\n')){const f=line.split('|');
+ const rp=f[2].split(' ').map(Number),dp=f[3].trim().split(' '),sg=dp[0][0]==='-'?-1:1,
+ dd=sg*(Math.abs(+dp[0])+(+dp[1])/60+(+dp[2])/3600);
+ const ra=(rp[0]+rp[1]/60+rp[2]/3600)*15*D2R,de=dd*D2R;
+ const s={key:f[0],jp:f[1],con:f[6],mag:+f[4],bv:+f[5],x:Math.cos(de)*Math.cos(ra),y:Math.cos(de)*Math.sin(ra),z:Math.sin(de),ra,dec:de,ph:r()*TAU,sp:2.4+r()*4,rgb:null,ci:0};
+ s.rgb=bv2rgb(s.bv);real.push(s);byKey[s.key]=s}}
+real.forEach((s,i)=>s.i=i);
+const cons=[];
+function normv(v){const l=Math.hypot(v[0],v[1],v[2])||1;return[v[0]/l,v[1]/l,v[2]/l]}
+function buildCon(c,asterism){const segs=[],set=new Set();
+ for(const p of c[2].split(',')){const [a,b]=p.split('-');segs.push([byKey[a],byKey[b]]);set.add(byKey[a]);set.add(byKey[b])}
+ const sv=[0,0,0];for(const s of set){sv[0]+=s.x;sv[1]+=s.y;sv[2]+=s.z}
+ const cv=normv(sv);let rad=0;for(const s of set)rad=Math.max(rad,Math.acos(clamp(s.x*cv[0]+s.y*cv[1]+s.z*cv[2],-1,1)));
+ return{id:c[0],name:c[1],segs,stars:[...set],cv,rad,story:c[3],aster:!!asterism,maxmag:Math.min(...[...set].map(s=>s.mag))}}
+for(const c of CONS)cons.push(buildCon(c,false));
+const asters=ASTER.map(a=>buildCon(a,true));
+const conById={};for(const c of cons)conById[c.id]=c;
+for(const c of cons)for(const s of c.stars)if(!s.conObj||s.con===c.id)s.conObj=c;
+
+/* ---- procedural faint stars ---- */
+const GAL=[-0.0548755604,-0.8734370902,-0.4838350155, 0.4941094279,-0.4448296300,0.7469822445, -0.8676661490,-0.1980763734,0.4559837762];
+const NF=15500;
+const F={n:NF,x:new Float32Array(NF),y:new Float32Array(NF),z:new Float32Array(NF),m:new Float32Array(NF),ci:new Uint8Array(NF),ph:new Float32Array(NF),sp:new Float32Array(NF)};
+const COLN=6,COLS=[[160,182,255],[205,218,255],[245,245,255],[255,243,226],[255,220,170],[255,180,120]];
+function nearestCol(rgb){let b=0,bd=1e9;for(let i=0;i<COLN;i++){const c=COLS[i],d=(c[0]-rgb[0])**2+(c[1]-rgb[1])**2+(c[2]-rgb[2])**2;if(d<bd){bd=d;b=i}}return b}
+for(const s of real)s.ci=nearestCol(s.rgb);
+{const r=mulberry(20261028);const arr=[];let guard=0;
+ const NMAIN=9500;while(arr.length<NMAIN&&guard++<400000){
+  const u=r()*2-1,ph=r()*TAU,q=Math.sqrt(1-u*u),x=q*Math.cos(ph),y=q*Math.sin(ph),z=u;
+  const gz=GAL[6]*x+GAL[7]*y+GAL[8]*z,gx=GAL[0]*x+GAL[1]*y+GAL[2]*z,gy=GAL[3]*x+GAL[4]*y+GAL[5]*z;
+  const b=Math.asin(gz)*R2D,l=Math.atan2(gy,gx)*R2D;
+  const w=.26+1.05*Math.exp(0-(b/15)**2)*(.55+.45*Math.exp(0-(l/65)**2)+.15*Math.exp(0-(wrap180(l-100)/40)**2));
+  if(r()>w/1.31)continue;
+  const uu=r(),m=4.2+Math.log10(1+uu*(Math.pow(10,.45*2.5)-1))/.45;
+  const t=r();let bv=t<.22?-.08+r()*.34:t<.62?.3+r()*.4:t<.88?.7+r()*.4:1.1+r()*.5;
+  arr.push({x,y,z,m,ci:nearestCol(bv2rgb(bv)),ph:r()*TAU,sp:2+r()*5});}
+ // 天の川に集まる微光星
+ let g2=0;while(arr.length<NF&&g2++<900000){
+  const u=r()*2-1,ph=r()*TAU,q=Math.sqrt(1-u*u),x=q*Math.cos(ph),y=q*Math.sin(ph),z=u;
+  const gz=GAL[6]*x+GAL[7]*y+GAL[8]*z,gx=GAL[0]*x+GAL[1]*y+GAL[2]*z,gy=GAL[3]*x+GAL[4]*y+GAL[5]*z;
+  const b=Math.asin(gz)*R2D,l=Math.atan2(gy,gx)*R2D;
+  const w=Math.exp(0-(b/7)**2)*(.35+.65*Math.exp(0-(l/60)**2)+.1)*(.5+.5*fbm3(gx*6,gy*6,gz*9,3));
+  if(r()>w)continue;
+  const m=6.3+r()*1.4;arr.push({x,y,z,m,ci:nearestCol(bv2rgb(.1+r()*1.1)),ph:r()*TAU,sp:2+r()*5})}
+ arr.sort((a,b)=>a.m-b.m);
+ arr.forEach((s,i)=>{F.x[i]=s.x;F.y[i]=s.y;F.z[i]=s.z;F.m[i]=s.m;F.ci[i]=s.ci;F.ph[i]=s.ph;F.sp[i]=s.sp});F.n=arr.length}
+
+/* ===================== Milky Way texture (galactic l,b) ===================== */
+const MW={W:800,H:136,ZM:.6,data:null};
+function buildMW(){const {W,H,ZM}=MW;const d=new Uint8ClampedArray(W*H*3);
+ for(let j=0;j<H;j++){const z=-ZM+(j+.5)/H*2*ZM,cb=Math.sqrt(1-z*z),b=Math.asin(z)*R2D;
+  for(let i=0;i<W;i++){const l=(i+.5)/W*TAU,gx=cb*Math.cos(l),gy=cb*Math.sin(l);const ld=wrap180(l*R2D);
+   const wd=5.6+5.2*Math.exp(0-(ld/55)**2)+2*Math.exp(0-(wrap180(ld-80)/30)**2);
+   let band=Math.exp(0-(b/wd)**2);
+   const cen=Math.exp(0-(ld/48)**2);
+   const A=.34+.95*cen+.18*Math.exp(0-(wrap180(ld-85)/32)**2)+.1*Math.exp(0-(wrap180(ld+90)/40)**2);
+   const bulge=1.15*Math.exp(0-((ld/17)**2+((b-1.2)/8)**2));
+   const n1=fbm3(gx*2.1+3.3,gy*2.1+1.1,z*3.4+7.7,5);
+   const n2=fbm3(gx*7+9,gy*7-4,z*11+2,4);
+   const clouds=.35+1.25*n1;
+   let lum=(band*A*clouds+bulge*(.55+.7*n2));
+   // dust lanes
+   const rn=fbm3(gx*3.4+20,gy*3.4+11,z*9+5,4),ridge=1-Math.abs(2*rn-1),brk=smooth(.3,.62,fbm3(gx*2.2+5,gy*2.2+8,z*5+1,3));
+   const lane=brk*Math.pow(ridge,3.4)*Math.exp(0-((b-.6*Math.exp(0-(ld/40)**2))/(2.6+3.2*cen))**2)*(.5+.8*cen+.4*Math.exp(0-(wrap180(ld-60)/25)**2));
+   lum*=1-clamp(lane*1.2,0,.8);
+   const rn2=fbm3(gx*8+40,gy*8+3,z*17+9,3);lum*=1-.4*Math.pow(1-Math.abs(2*rn2-1),7)*Math.exp(0-(b/5)**2)*(.4+cen);
+   lum*=.8+.4*fbm3(gx*45,gy*45,z*70,2);
+   lum=clamp(lum,0,2.2);
+   const warm=clamp(cen*1.5+bulge*.5,0,1);
+   const cr=lerp(.64,.97,warm),cg=lerp(.76,.84,warm),cb2=lerp(1.0,.72,warm);
+   const o=(j*W+i)*3;const v=255*lum*.27;d[o]=v*cr;d[o+1]=v*cg;d[o+2]=v*cb2}}
+ MW.data=d}
+
+/* ===================== skyline ===================== */
+const SK={N:1440,far:new Float32Array(1440),near:new Float32Array(1440),lights:[]};
+function buildSkyline(){const r=mulberry(4242);const N=SK.N;
+ const n1=(az,f,o)=>{const a=az*D2R;return fbm3(Math.cos(a)*f+o,Math.sin(a)*f+o*.7,o*.3,4)};
+ for(let i=0;i<N;i++){const az=i*360/N;
+  const dF=wrap180(az-252),near=smooth(6,34,Math.abs(dF));
+  let h=.6+(3.2*Math.pow(n1(az,2.2,5),1.6)+1.1*n1(az,9,12))*(.35+.65*near);
+  if(Math.abs(dF)<15){const t=1-Math.abs(dF)/15;h=Math.max(h,.7+4.0*Math.pow(t,1.7))}
+  SK.far[i]=h}
+ const near=new Float32Array(N);
+ for(let i=0;i<N;i++){const az=i*360/N;near[i]=.22+.35*n1(az,3,31)+.15*n1(az,14,9)}
+ // trees (conifers) in west/north arcs
+ const tree=(c,w,h)=>{for(let i=0;i<N;i++){const az=i*360/N,d=Math.abs(wrap180(az-c));if(d<w){const v=h*(1-d/w);const k=i;if(near[k]<near[k]+v)near[k]=Math.max(near[k],.2+v)}}};
+ const inRange=(az,a,b)=>{az=((az%360)+360)%360;return a<=b?(az>=a&&az<=b):(az>=a||az<=b)};
+ for(let az=0;az<360;az+=.42){if(inRange(az,185,340)||inRange(az,345,35)){if(r()<.8){tree(az+r()*.3,.28+r()*.22,.7+r()*1.1*(inRange(az,230,300)?1.2:.8))}}}
+ // city blocks (south-east)
+ SK.lights.length=0;
+ let az=70;while(az<158){const w=.35+r()*.9,h=.3+Math.pow(r(),2.2)*2.0;
+  for(let i=Math.floor(az/360*N);i<=Math.floor((az+w)/360*N);i++)near[i]=Math.max(near[i],.25+h*.8);
+  const nl=Math.floor(w*h*9);for(let k=0;k<nl;k++){SK.lights.push([az+r()*w*.9+.02,.12+r()*h*.75,r()<.7?0:r()<.5?1:2,r()*TAU])}
+  az+=w+r()*.08}
+ // distant lit road dots
+ for(let k=0;k<90;k++){SK.lights.push([60+r()*110,.05+r()*.18,3,r()*TAU])}
+ SK.near.set(near)}
+buildMW();buildSkyline();
+/* ===================== astronomy ===================== */
+const LAT=35.7*D2R,LON=139.7,SINL=Math.sin(LAT),COSL=Math.cos(LAT);
+const jdOf=ms=>ms/86400000+2440587.5;
+function precessMat(jd){const T=(jd-2451545)/36525,as=D2R/3600;
+ const ze=(2306.2181*T+.30188*T*T+.017998*T**3)*as,z=(2306.2181*T+1.09468*T*T+.018203*T**3)*as,th=(2004.3109*T-.42665*T*T-.041833*T**3)*as;
+ const cz=Math.cos(ze),sz=Math.sin(ze),cZ=Math.cos(z),sZ=Math.sin(z),ct=Math.cos(th),st=Math.sin(th);
+ return[cz*ct*cZ-sz*sZ,-sz*ct*cZ-cz*sZ,-st*cZ, cz*ct*sZ+sz*cZ,-sz*ct*sZ+cz*cZ,-st*sZ, cz*st,-sz*st,ct]}
+function mul3(A,B){const o=new Array(9);for(let i=0;i<3;i++)for(let j=0;j<3;j++)o[i*3+j]=A[i*3]*B[j]+A[i*3+1]*B[3+j]+A[i*3+2]*B[6+j];return o}
+function transpose3(A){return[A[0],A[3],A[6],A[1],A[4],A[7],A[2],A[5],A[8]]}
+function lstOf(jd){const d=jd-2451545;let g=280.46061837+360.98564736629*d;g=((g+LON)%360+360)%360;return g*D2R}
+function mehMat(th){const s=Math.sin(th),c=Math.cos(th);return[-s,c,0, -SINL*c,-SINL*s,COSL, COSL*c,COSL*s,SINL]}
+const EPS0=23.43929*D2R;
+function sunVec(jd){const n=jd-2451545,L=(280.460+.9856474*n)*D2R,g=(357.528+.9856003*n)*D2R,lam=L+(1.915*Math.sin(g)+.020*Math.sin(2*g))*D2R,eps=(23.439-4e-7*n)*D2R;
+ return[Math.cos(lam),Math.cos(eps)*Math.sin(lam),Math.sin(eps)*Math.sin(lam)]}
+function moonVec(jd){const T=(jd-2451545)/36525,s=(a,b)=>Math.sin((a+b*T)*D2R),c=(a,b)=>Math.cos((a+b*T)*D2R);
+ const lam=(218.32+481267.881*T+6.29*s(135.0,477198.87)-1.27*s(259.3,-413335.36)+.66*s(235.7,890534.22)+.21*s(269.9,954397.74)-.19*s(357.5,35999.05)-.11*s(186.5,966404.03))*D2R;
+ const bet=(5.13*s(93.3,483202.02)+.28*s(228.2,960400.89)-.28*s(318.3,6003.15)-.17*s(217.6,-407332.21))*D2R;
+ const par=(.9508+.0518*c(135.0,477198.87)+.0095*c(259.3,-413335.36)+.0078*c(235.7,890534.22)+.0028*c(269.9,954397.74))*D2R;
+ const eps=(23.439-.013*T)*D2R,x=Math.cos(bet)*Math.cos(lam),y=Math.cos(bet)*Math.sin(lam),z=Math.sin(bet);
+ return{v:[x,y*Math.cos(eps)-z*Math.sin(eps),y*Math.sin(eps)+z*Math.cos(eps)],par}}
+const PL=[ // name, jp, elements
+['mercury','水星',[.38709927,.00000037,.20563593,.00001906,7.00497902,-.00594749,252.25032350,149472.67411175,77.45779628,.16047689,48.33076593,-.12534081],[220,205,180],-.42],
+['venus','金星',[.72333566,.00000390,.00677672,-.00004107,3.39467605,-.00078890,181.97909950,58517.81538729,131.60246718,.00268329,76.67984255,-.27769418],[255,248,225],-4.4],
+['mars','火星',[1.52371034,.00001847,.09339410,.00007882,1.84969142,-.00813131,-4.55343205,19140.30268499,-23.94362959,.44441088,49.55953891,-.29257343],[255,158,115],-1.52],
+['jupiter','木星',[5.20288700,-.00011607,.04838624,-.00013253,1.30439695,-.00183714,34.39644051,3034.74612775,14.72847983,.21252668,100.47390909,.20469106],[255,236,205],-9.4],
+['saturn','土星',[9.53667594,-.00125060,.05386179,-.00050991,2.48599187,.00193609,49.95424423,1222.49362201,92.59887831,-.41897216,113.66242448,-.28867794],[238,218,165],-8.9]];
+const EARTH=[1.00000261,.00000562,.01671123,-.00004392,-.00001531,-.01294668,100.46457166,35999.37244981,102.93768193,.32327364,0,0];
+function helio(el,T){const a=el[0]+el[1]*T,e=el[2]+el[3]*T,I=(el[4]+el[5]*T)*D2R,L=el[6]+el[7]*T,w=el[8]+el[9]*T,O=(el[10]+el[11]*T)*D2R;
+ let M=wrap180(L-w)*D2R,E=M+e*Math.sin(M);for(let i=0;i<7;i++)E=M+e*Math.sin(E);
+ const xp=a*(Math.cos(E)-e),yp=a*Math.sqrt(1-e*e)*Math.sin(E),om=(w*D2R-O),co=Math.cos(om),so=Math.sin(om),cO=Math.cos(O),sO=Math.sin(O),cI=Math.cos(I),sI=Math.sin(I);
+ return[(co*cO-so*sO*cI)*xp+(-so*cO-co*sO*cI)*yp,(co*sO+so*cO*cI)*xp+(-so*sO+co*cO*cI)*yp,(so*sI)*xp+(co*sI)*yp]}
+function planetsAt(jd){const T=(jd-2451545)/36525,E=helio(EARTH,T),R=Math.hypot(...E),out=[];
+ for(const p of PL){const h=helio(p[2],T),g=[h[0]-E[0],h[1]-E[1],h[2]-E[2]],D=Math.hypot(...g),r=Math.hypot(...h);
+  const ce=Math.cos(EPS0),se=Math.sin(EPS0),v=[g[0]/D,(g[1]*ce-g[2]*se)/D,(g[1]*se+g[2]*ce)/D];
+  const ci=clamp((r*r+D*D-R*R)/(2*r*D),-1,1),i=Math.acos(ci)*R2D;let m=p[4]+5*Math.log10(r*D);
+  if(p[0]==='mercury')m+=.038*i-.000273*i*i+2e-6*i**3;else if(p[0]==='venus')m+=.0009*i+.000239*i*i-6.5e-7*i**3;else if(p[0]==='mars')m+=.016*i;else if(p[0]==='jupiter')m+=.005*i;
+  
+  out.push({key:p[0],jp:p[1],v,mag:m,rgb:p[3],dist:D})}
+ return out}
+const SEAS=[{n:'今夜'},{n:'春の夜',mo:3,d:20,h:21.5},{n:'夏の夜',mo:6,d:25,h:21.5},{n:'秋の夜',mo:9,d:20,h:21},{n:'冬の夜',mo:0,d:20,h:21}];
+function sunAltOf(ms){const jd=jdOf(ms),sv=sunVec(jd),m=mehMat(lstOf(jd));return Math.asin(m[6]*sv[0]+m[7]*sv[1]+m[8]*sv[2])*R2D}
+function moonIllum(ms){const jd=jdOf(ms),s=sunVec(jd),m=moonVec(jd).v,c=s[0]*m[0]+s[1]*m[1]+s[2]*m[2];return{k:(1-c)/2,psi:Math.acos(clamp(c,-1,1))}}
+// JST helper
+const jst=(y,mo,d,h,mi)=>Date.UTC(y,mo,d,h-9,mi||0);
+function nextDusk(ms,alt){let t=ms,a=sunAltOf(t);for(let g=0;g<600;g++){const t2=t+5*60000,a2=sunAltOf(t2);if(a>=alt&&a2<alt)return t2;t=t2;a=a2}return ms}
+function nightStart(ms,alt){return sunAltOf(ms)<-8?ms:nextDusk(ms,alt)}
+/* ===================== state / canvas ===================== */
+const cv=$('c'),ctx=cv.getContext('2d',{alpha:false});
+const bcv=document.createElement('canvas'),bctx=bcv.getContext('2d');
+const S={t:Date.now(),rate:180,az:180*D2R,alt:38*D2R,fov:80,tfov:80,
+ lines:store.get('pl_lines','1')==='1',names:store.get('pl_names','0')==='1',speedIdx:+store.get('pl_speed','1'),seas:0,
+ tour:store.get('pl_tour','1')==='1',tourPause:0,focus:null,shoots:[],nextShoot:6,T:0,frozen:false,fade:0,fadeDir:0,uiT:0,cyOff:0,allowDay:false,vx:0,vy:0,hold:0};
+const SPEEDS=[{n:'実時間',r:1},{n:'早送り',r:180},{n:'超早送り',r:720}];
+S.rate=SPEEDS[S.speedIdx].r;
+let W=0,H=0,dpr=1,bw=0,bh=0,bimg=null,b32=null,dither=null,sc=3;
+const Q={lvl:2,nStars:6500,px:70000,dprMax:2};
+function setQuality(l){Q.lvl=l;Q.nStars=[3800,8500,F.n][l];Q.px=[26000,48000,80000][l];Q.dprMax=[1.5,2,2][l];resize()}
+function resize(){W=innerWidth;H=innerHeight;dpr=Math.min(devicePixelRatio||1,Q.dprMax);cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+ sc=Math.max(1.5,Math.sqrt(W*H/Q.px));bw=Math.ceil(W/sc);bh=Math.ceil(H/sc);bcv.width=bw;bcv.height=bh;bimg=bctx.createImageData(bw,bh);b32=new Uint32Array(bimg.data.buffer);
+ dither=new Float32Array(bw*bh);const r=mulberry(5);for(let i=0;i<dither.length;i++)dither[i]=r()*1.0-.5;
+ const sa=$('safe'),cs=getComputedStyle(sa);S.sat=parseFloat(cs.paddingTop)||0;S.sab=parseFloat(cs.paddingBottom)||0;
+ $('clock').style.top=(S.sat+14)+'px';layoutUI()}
+function layoutUI(){const sab=S.sab||0;$('bar').style.bottom=(sab+14)+'px';const bh=$('bar').offsetHeight||44;$('label').style.bottom=(sab+14+bh+16)+'px';$('hint').style.top=(S.sat+H*.14)+'px'}
+
+/* ===================== frame setup ===================== */
+const FR={};
+const MOON={tex:null};
+function minDim(){return Math.min(W,H)}
+function frameSetup(){
+ const jd=jdOf(S.t);FR.jd=jd;const th=lstOf(jd);FR.lst=th;
+ const P=precessMat(jd),Meh=mehMat(th),M=mul3(Meh,P);FR.M=M;FR.Meh=Meh;
+ const fov=S.fov;FR.R=(minDim()/2)/(2*Math.tan(fov*D2R/4));FR.cx=W/2;FR.cy=H/2+S.cyOff*H;
+ const sa=Math.sin(S.az),ca=Math.cos(S.az),sl=Math.sin(S.alt),cl=Math.cos(S.alt);
+ FR.f=[cl*sa,cl*ca,sl];FR.r=[ca,-sa,0];FR.u=[-sl*sa,-sl*ca,cl];
+ // Mc rows: r·M, u·M, f·M  (J2000 -> camera)
+ const rows=[FR.r,FR.u,FR.f],Mc=new Float64Array(9);
+ for(let k=0;k<3;k++)for(let j=0;j<3;j++)Mc[k*3+j]=rows[k][0]*M[j]+rows[k][1]*M[3+j]+rows[k][2]*M[6+j];FR.Mc=Mc;
+ // sun
+ const sv=sunVec(jd),sh=mulv(Meh,sv);FR.sunH=sh;FR.sunAlt=Math.asin(sh[2])*R2D;
+ const mo=moonVec(jd),mh=mulv(Meh,mo.v);let ma=Math.asin(mh[2]);const mpar=mo.par;const nalt=ma-mpar*Math.cos(ma);
+ {const hz=Math.hypot(mh[0],mh[1])||1,ch=Math.cos(nalt);FR.moonH=[mh[0]/hz*ch,mh[1]/hz*ch,Math.sin(nalt)]}
+ FR.moonAlt=nalt*R2D;const cps=clamp(sv[0]*mo.v[0]+sv[1]*mo.v[1]+sv[2]*mo.v[2],-1,1);FR.moonK=(1-cps)/2;FR.moonC=-cps;
+ // limiting magnitude by twilight
+ const h=FR.sunAlt,Tt=[[-18,7.2],[-15,6.3],[-12,4.6],[-9,3.0],[-6,1.2],[-3,-1],[0,-3]];let lim=Tt[Tt.length-1][1];
+ if(h<=-18)lim=7.2;else for(let i=1;i<Tt.length;i++)if(h<=Tt[i][0]){lim=lerp(Tt[i-1][1],Tt[i][1],(h-Tt[i-1][0])/(Tt[i][0]-Tt[i-1][0]));break}
+ const mw=clamp(FR.moonAlt/12,0,1)*FR.moonK;FR.moonWash=mw;lim-=2.1*mw;FR.lim=lim;
+ FR.mwGain=clamp((lim-4.2)/3,0,1)*(1-.7*mw);
+ // galactic matrix Q = G * M^T * B
+ const Mt=transpose3(M),B=[FR.r[0],FR.u[0],FR.f[0],FR.r[1],FR.u[1],FR.f[1],FR.r[2],FR.u[2],FR.f[2]];FR.Q=mul3(mul3(GAL,Mt),B);
+ FR.planets=planetsAt(jd);
+}
+function mulv(A,v){return[A[0]*v[0]+A[1]*v[1]+A[2]*v[2],A[3]*v[0]+A[4]*v[1]+A[5]*v[2],A[6]*v[0]+A[7]*v[1]+A[8]*v[2]]}
+let PX=0,PY=0,PZ=0;
+function projCam(px,py,pz){if(pz<-.96)return false;const k=2*FR.R/(1+pz);PX=FR.cx+k*px;PY=FR.cy-k*py;PZ=pz;return true}
+function projE(x,y,z){const r=FR.r,u=FR.u,f=FR.f;return projCam(x*r[0]+y*r[1]+z*r[2],x*u[0]+y*u[1]+z*u[2],x*f[0]+y*f[1]+z*f[2])}
+function projH(h){return projE(h[0],h[1],h[2])}
+function projJ(v){const Mc=FR.Mc;return projCam(Mc[0]*v[0]+Mc[1]*v[1]+Mc[2]*v[2],Mc[3]*v[0]+Mc[4]*v[1]+Mc[5]*v[2],Mc[6]*v[0]+Mc[7]*v[1]+Mc[8]*v[2])}
+function jToH(x,y,z){const M=FR.M;return[M[0]*x+M[1]*y+M[2]*z,M[3]*x+M[4]*y+M[5]*z,M[6]*x+M[7]*y+M[8]*z]}
+function unproj(sx,sy){const i2=1/(2*FR.R),px=(sx-FR.cx)*i2,py=(FR.cy-sy)*i2,q=px*px+py*py,d=1/(1+q),x=2*px*d,y=2*py*d,z=(1-q)*d;
+ const r=FR.r,u=FR.u,f=FR.f;return[x*r[0]+y*u[0]+z*f[0],x*r[1]+y*u[1]+z*f[1],x*r[2]+y*u[2]+z*f[2]]}
+
+/* ===================== sky buffer ===================== */
+const LUT=160,lutR=new Float32Array(LUT),lutG=new Float32Array(LUT),lutB=new Float32Array(LUT);
+const TWK=[[-18,[3,6.5,17],[11,19,40]],[-12,[6,14,38],[50,48,84]],[-8,[13,30,70],[110,84,122]],[-4,[28,56,108],[212,130,122]],[0,[66,108,168],[255,176,112]],[6,[110,160,215],[210,225,240]]];
+function twColors(h){if(h<=TWK[0][0])return[TWK[0][1],TWK[0][2]];const L=TWK.length;if(h>=TWK[L-1][0])return[TWK[L-1][1],TWK[L-1][2]];
+ for(let i=1;i<L;i++)if(h<=TWK[i][0]){const t=(h-TWK[i-1][0])/(TWK[i][0]-TWK[i-1][0]);const z=[0,0,0],hz=[0,0,0];for(let k=0;k<3;k++){z[k]=lerp(TWK[i-1][1][k],TWK[i][1][k],t);hz[k]=lerp(TWK[i-1][2][k],TWK[i][2][k],t)}return[z,hz]}}
+const CITY=[[115,1.0],[22,.42],[305,.34]].map(a=>({v:[Math.sin(a[0]*D2R),Math.cos(a[0]*D2R),0],a:a[1]}));
+function skyPass(){
+ const [Z,Hc]=twColors(FR.sunAlt);const night=1-smooth(-16,-6,FR.sunAlt);const moonL=FR.moonWash;
+ for(let i=0;i<LUT;i++){const U=(i/(LUT-1))*1.15-.15;const t=Math.pow(clamp(U,0,1),.42);
+  let r=lerp(Hc[0],Z[0],t),g=lerp(Hc[1],Z[1],t),b=lerp(Hc[2],Z[2],t);
+  r+=moonL*9*(1-t*.4);g+=moonL*12*(1-t*.4);b+=moonL*22*(1-t*.4);
+  if(U<0){const d=clamp(1+U*6,0,1);r*=d;g*=d;b*=d}
+  lutR[i]=r;lutG[i]=g+(1-t)*2.2*night;lutB[i]=b+(1-t)*1.0*night}
+ const Q=FR.Q,R=FR.R,cx=FR.cx,cy=FR.cy,i2=1/(2*R),r=FR.r,u=FR.u,f=FR.f;
+ const uR=r[2],uU=u[2],uF=f[2];
+ const dotv=v=>[v[0]*r[0]+v[1]*r[1]+v[2]*r[2],v[0]*u[0]+v[1]*u[1]+v[2]*u[2],v[0]*f[0]+v[1]*f[1]+v[2]*f[2]];
+ const cities=CITY.map(c=>({d:dotv(c.v),a:c.a}));const sD=dotv(FR.sunH),mD=dotv(FR.moonH);
+ const sunW=smooth(-20,-3,FR.sunAlt)*(1-smooth(-1,5,FR.sunAlt));const moonOn=FR.moonAlt>-8?FR.moonK*(.5+.5*clamp(FR.moonAlt/10,0,1)):0;
+ const mwG=FR.mwGain*255/255*1.0,TW=MW.W,TH=MW.H,ZM=MW.ZM,md=MW.data,cityAmp=.5*night;
+ const sc2=sc;let o=0;
+ for(let j=0;j<bh;j++){const sy=(j+.5)*sc2,py=(cy-sy)*i2;
+  for(let i=0;i<bw;i++,o++){const sx=(i+.5)*sc2,px=(sx-cx)*i2,q=px*px+py*py,d=1/(1+q),x=2*px*d,y=2*py*d,z=(1-q)*d;
+   const U=uR*x+uU*y+uF*z;
+   if(U<-.04){b32[o]=0xFF140B06;continue}
+   let li=(U+.15)*((LUT-1)/1.15);li=li<0?0:li>LUT-1?LUT-1:li;const k=li|0;
+   let rr=lutR[k],gg=lutG[k],bb=lutB[k];
+   // city glow
+   if(cityAmp>0&&U<.45){const hf=Math.exp(-(U>0?U:0)*7.5);let cg=.0;for(let c=0;c<3;c++){const cc=cities[c],dt=cc.d[0]*x+cc.d[1]*y+cc.d[2]*z;cg+=cc.a*Math.exp((dt-1)*3.4)}
+    cg=(cg+.16)*hf*cityAmp;rr+=cg*92;gg+=cg*44;bb+=cg*15}
+   // sun glow
+   if(sunW>.01){const dt=sD[0]*x+sD[1]*y+sD[2]*z,e=Math.exp((dt-1)*5.5)*sunW,hf=Math.exp(-(U>0?U:0)*4);rr+=e*hf*150;gg+=e*hf*70;bb+=e*hf*30}
+   // moon halo
+   if(moonOn>0){const dt=mD[0]*x+mD[1]*y+mD[2]*z;if(dt>.75){const e=Math.exp((dt-1)*800)*.5+Math.exp((dt-1)*45)*.13+Math.exp((dt-1)*7)*.05;const m=e*moonOn;rr+=m*130;gg+=m*148;bb+=m*190}}
+   // milky way
+   if(mwG>.01){const gx=Q[0]*x+Q[1]*y+Q[2]*z,gy=Q[3]*x+Q[4]*y+Q[5]*z,gz=Q[6]*x+Q[7]*y+Q[8]*z;
+    if(gz>-ZM&&gz<ZM&&U>0){let fj=(gz+ZM)/(2*ZM)*TH-.5;if(fj<0)fj=0;else if(fj>TH-1.001)fj=TH-1.001;
+     let l=Math.atan2(gy,gx);if(l<0)l+=TAU;let fi=l*(TW/TAU)-.5;if(fi<0)fi+=TW;
+     const i0=fi|0,j0=fj|0,tx=fi-i0,ty=fj-j0,i1=i0+1>=TW?0:i0+1;
+     const a=(j0*TW+i0)*3,bq=(j0*TW+i1)*3,c=((j0+1)*TW+i0)*3,dd=((j0+1)*TW+i1)*3;
+     const w00=(1-tx)*(1-ty),w10=tx*(1-ty),w01=(1-tx)*ty,w11=tx*ty;
+     const ex=U<.3?Math.pow(U/.3,.9):1,gk=mwG*ex*1.1;
+     rr+=(md[a]*w00+md[bq]*w10+md[c]*w01+md[dd]*w11)*gk;gg+=(md[a+1]*w00+md[bq+1]*w10+md[c+1]*w01+md[dd+1]*w11)*gk;bb+=(md[a+2]*w00+md[bq+2]*w10+md[c+2]*w01+md[dd+2]*w11)*gk}}
+   const dz=dither[o];rr+=dz;gg+=dz;bb+=dz;
+   b32[o]=0xFF000000|((bb<0?0:bb>255?255:bb)<<16)|((gg<0?0:gg>255?255:gg)<<8)|(rr<0?0:rr>255?255:rr)}}
+ bctx.putImageData(bimg,0,0);
+ ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(bcv,0,0,bw,bh,0,0,bw*sc2,bh*sc2);
+}
+
+/* ===================== sprites ===================== */
+const SPR=[];function makeSprites(){for(let i=0;i<COLN;i++){const c=document.createElement('canvas');c.width=c.height=96;const g=c.getContext('2d'),[r,gg,b]=COLS[i];
+ const gr=g.createRadialGradient(48,48,0,48,48,48);gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(.08,'rgba(255,255,255,1)');gr.addColorStop(.17,`rgba(${r},${gg},${b},.8)`);gr.addColorStop(.32,`rgba(${r},${gg},${b},.32)`);gr.addColorStop(.58,`rgba(${r},${gg},${b},.08)`);gr.addColorStop(1,`rgba(${r},${gg},${b},0)`);
+ g.fillStyle=gr;g.fillRect(0,0,96,96);SPR.push(c)}}
+const SPRS=[];function makeSpiked(){for(let i=0;i<COLN;i++){const c=document.createElement('canvas');c.width=c.height=192;const g=c.getContext('2d'),[r,gg,b]=COLS[i];
+ g.drawImage(SPR[i],48,48,96,96);
+ for(const hv of [0,1]){const gr=hv?g.createLinearGradient(96,0,96,192):g.createLinearGradient(0,96,192,96);gr.addColorStop(0,`rgba(${r},${gg},${b},0)`);gr.addColorStop(.5,'rgba(255,255,255,.62)');gr.addColorStop(1,`rgba(${r},${gg},${b},0)`);
+  g.fillStyle=gr;if(hv)g.fillRect(95.2,0,1.6,192);else g.fillRect(0,95.2,192,1.6)}
+ SPRS.push(c)}}
+makeSprites();makeSpiked();
+const BUCK=[];const NA=10;for(let c=0;c<COLN;c++)for(let a=0;a<NA;a++)BUCK.push({style:`rgba(${COLS[c][0]},${COLS[c][1]},${COLS[c][2]},${(.1+.9*(a+1)/NA).toFixed(3)})`,n:0,d:new Float32Array(2*F.n+16),sz:.8+a*.09});
+function resetBuckets(){for(const b of BUCK)b.n=0}
+
+/* ===================== stars ===================== */
+const VIS=[]; // 画面上の実在星 (タップ判定用)
+const PROF={};
+const fcv=document.createElement('canvas'),fctx=fcv.getContext('2d');let fLast=null,fFrames=0,fw=0,fh=0;
+function viewDirty(l){if(!l)return true;const d=Math.abs(angDiff(S.az,l.az))*Math.cos(S.alt)+Math.abs(S.alt-l.alt);const dt=Math.abs(S.t-l.t)/86400000*TAU;
+ return FR.R*(d+dt)>1.0||Math.abs(FR.R-l.R)>l.R*.002||Math.abs(FR.cy-l.cy)>.5||l.W!==W||l.H!==H||l.dpr!==dpr}
+function drawFaint(c2){
+ const Mc=FR.Mc,M=FR.M,R=FR.R,cx=FR.cx,cy=FR.cy,ml=FR.lim,T=S.T,zf=clamp(Math.pow(70/S.fov,.35),.8,1.7);
+ const m6=M[6],m7=M[7],m8=M[8];resetBuckets();
+ const n=Math.min(Q.nStars,F.n);
+ for(let i=0;i<n;i++){const m=F.m[i];if(m>ml+.6)break;
+  const x=F.x[i],y=F.y[i],z=F.z[i],U=m6*x+m7*y+m8*z;if(U<.005)continue;
+  const pz=Mc[6]*x+Mc[7]*y+Mc[8]*z;if(pz<-.9)continue;
+  const k=2*R/(1+pz),sx=cx+k*(Mc[0]*x+Mc[1]*y+Mc[2]*z),sy=cy-k*(Mc[3]*x+Mc[4]*y+Mc[5]*z);
+  if(sx<-4||sx>W+4||sy<-4||sy>H+4)continue;
+  let a=.2+(6.7-m)*.19;a=a>1?1:a;a*=clamp((ml-m)/1.0,0,1);a*=.28+.72*smooth(0,.25,U);
+  a*=1+(.26*Math.exp(0-U*7)+.1)*Math.sin(T*F.sp[i]+F.ph[i]);if(a<.05)continue;
+  let ai=(a*NA)|0;if(ai>=NA)ai=NA-1;const b=BUCK[F.ci[i]*NA+ai];b.d[b.n++]=sx;b.d[b.n++]=sy;}
+ for(const b of BUCK){if(!b.n)continue;c2.fillStyle=b.style;const d=b.d,s=b.sz*zf;for(let i=0;i<b.n;i+=2)c2.fillRect(d[i]-s*.5,d[i+1]-s*.5,s,s)}}
+function drawStars(){
+ const Mc=FR.Mc,M=FR.M,R=FR.R,cx=FR.cx,cy=FR.cy,lim=FR.lim,T=S.T,zf=clamp(Math.pow(70/S.fov,.35),.8,1.7);
+ const m6=M[6],m7=M[7],m8=M[8];VIS.length=0;const ml=lim;
+ if(fcv.width!==cv.width||fcv.height!==cv.height){fcv.width=cv.width;fcv.height=cv.height;fLast=null}
+ if(viewDirty(fLast)||fFrames>=3||S.fade>0){fctx.setTransform(1,0,0,1,0,0);fctx.clearRect(0,0,fcv.width,fcv.height);fctx.setTransform(dpr,0,0,dpr,0,0);const _f=S.prof?performance.now():0;drawFaint(fctx);if(S.prof)PROF.faint=(PROF.faint||0)+performance.now()-_f;fLast={az:S.az,alt:S.alt,t:S.t,R:FR.R,cy:FR.cy,W,H,dpr};fFrames=0}else fFrames++;
+ const _t=S.prof?performance.now():0;ctx.drawImage(fcv,0,0,fcv.width,fcv.height,0,0,W,H);if(S.prof){PROF.blit=(PROF.blit||0)+performance.now()-_t}
+ const _r=S.prof?performance.now():0;
+ // real stars
+ for(let i=0;i<real.length;i++){const s=real[i];if(s.mag>ml+.6)continue;
+  const U=m6*s.x+m7*s.y+m8*s.z;if(U<.0)continue;
+  const pz=Mc[6]*s.x+Mc[7]*s.y+Mc[8]*s.z;if(pz<-.9)continue;
+  const k=2*R/(1+pz),sx=cx+k*(Mc[0]*s.x+Mc[1]*s.y+Mc[2]*s.z),sy=cy-k*(Mc[3]*s.x+Mc[4]*s.y+Mc[5]*s.z);
+  if(sx<-30||sx>W+30||sy<-30||sy>H+30)continue;
+  s.sx=sx;s.sy=sy;s.U=U;VIS.push(s);
+  let vis=clamp((ml-s.mag)/1.1,0,1)*(.25+.75*smooth(0,.22,U));if(vis<.03)continue;
+  const tw=1+(.2*Math.exp(-U*7)+.07)*Math.sin(T*s.sp+s.ph)+.05*Math.sin(T*s.sp*2.7+s.ph*3);
+  let r=(1.05+(4.8-s.mag)*.6)*zf;if(r<.8)r=.8;
+  if(s.mag>4.2){const a=clamp(.55+(4.9-s.mag)*.4,.3,1)*vis*tw;let ai=(a*NA)|0;if(ai>=NA)ai=NA-1;const b=BUCK[s.ci*NA+ai];ctx.fillStyle=b.style;const q=1.5*zf;ctx.fillRect(sx-q/2,sy-q/2,q,q);continue}
+  const box=r*2*3.0*(.94+.06*tw);ctx.globalAlpha=clamp(vis*(.78+.22*tw),0,1);if(s.mag<1.1){const bx=box*1.9;ctx.drawImage(SPRS[s.ci],sx-bx/2,sy-bx/2,bx,bx)}else ctx.drawImage(SPR[s.ci],sx-box/2,sy-box/2,box,box);
+ }
+ ctx.globalAlpha=1;if(S.prof)PROF.real=(PROF.real||0)+performance.now()-_r;
+}
+
+/* ===================== deep sky fuzzies ===================== */
+const FUZ=[{id:'M45',ra:(3+47/60+24/3600)*15,dec:24.117,a:1.1,b:1.1,pa:0,c:[110,150,255],al:.22},
+ {id:'M42',ra:(5+35/60+17/3600)*15,dec:-5.39,a:.55,b:.4,pa:20,c:[255,150,190],al:.28},
+ {id:'M31',ra:(0+42/60+44/3600)*15,dec:41.27,a:2.2,b:.65,pa:35,c:[210,215,255],al:.3}];
+for(const f of FUZ){const a=f.ra*D2R,d=f.dec*D2R;f.v=[Math.cos(d)*Math.cos(a),Math.cos(d)*Math.sin(a),Math.sin(d)];
+ f.e=[-Math.sin(a),Math.cos(a),0];f.n=[-Math.sin(d)*Math.cos(a),-Math.sin(d)*Math.sin(a),Math.cos(d)]}
+function drawFuzzy(){
+ const ps=FR.lim>5.5?FR.mwGain+.3:0;if(FR.lim<4.8)return;const vs=clamp((FR.lim-4.8)/2,0,1)*(1-.5*FR.moonWash);
+ for(const f of FUZ){const U=FR.M[6]*f.v[0]+FR.M[7]*f.v[1]+FR.M[8]*f.v[2];if(U<.05)continue;
+  if(!projJ(f.v))continue;const x0=PX,y0=PY;
+  const pa=f.pa*D2R,dv=[Math.cos(pa)*f.n[0]+Math.sin(pa)*f.e[0],Math.cos(pa)*f.n[1]+Math.sin(pa)*f.e[1],Math.cos(pa)*f.n[2]+Math.sin(pa)*f.e[2]];
+  const e=.012,v2=normv([f.v[0]+e*dv[0],f.v[1]+e*dv[1],f.v[2]+e*dv[2]]);if(!projJ(v2))continue;const ang=Math.atan2(PY-y0,PX-x0);
+  const pxdeg=FR.R*D2R;const ra=f.a*pxdeg,rb=f.b*pxdeg;if(x0<-ra||x0>W+ra||y0<-ra||y0>H+ra)continue;
+  ctx.save();ctx.translate(x0,y0);ctx.rotate(ang);ctx.scale(1,rb/ra);
+  const g=ctx.createRadialGradient(0,0,0,0,0,ra);const c=f.c,A=f.al*vs;g.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},${A})`);g.addColorStop(.35,`rgba(${c[0]},${c[1]},${c[2]},${A*.4})`);g.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0)`);
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,ra,0,TAU);ctx.fill();ctx.restore()}
+}
+
+/* ===================== constellation lines ===================== */
+function segEndpoints(a,b,gap){ // returns [x1,y1,x2,y2] or null
+ if(!projJ([a.x,a.y,a.z]))return null;const x1=PX,y1=PY;if(!projJ([b.x,b.y,b.z]))return null;const x2=PX,y2=PY;
+ const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy);if(L<gap*2.4)return null;
+ if((x1<-50&&x2<-50)||(x1>W+50&&x2>W+50)||(y1<-50&&y2<-50)||(y1>H+50&&y2>H+50))return null;
+ const ux=dx/L,uy=dy/L;return[x1+ux*gap,y1+uy*gap,x2-ux*gap,y2-uy*gap]}
+function drawLines(){
+ const vis=clamp((FR.lim-1.5)/3,0,1);if(vis<.02)return;
+ if(S.lines){ctx.lineWidth=1;ctx.strokeStyle=`rgba(140,175,255,${(.2*vis).toFixed(3)})`;ctx.beginPath();
+  for(const c of cons){if(c===hlCon())continue;for(const s of c.segs){const e=segEndpoints(s[0],s[1],6);if(e){ctx.moveTo(e[0],e[1]);ctx.lineTo(e[2],e[3])}}}ctx.stroke()}
+}
+function hlCon(){return S.focus&&S.focus.con}
+function drawHighlight(){const fo=S.focus;if(!fo)return;const c=fo.con;const age=S.T-fo.t0;let a=clamp(age/.6,0,1)*(1-clamp((fo.fadeT?S.T-fo.fadeT:0)/1.6,0,1));if(a<=0)return;
+ const prog=clamp((age-.4)/3.2,0,1),n=c.segs.length;
+ const vis=clamp((FR.lim-1)/3,0,1);a*=vis;
+ const drawPass=(w,col,al,cap)=>{ctx.lineWidth=w;ctx.strokeStyle=col;ctx.globalAlpha=al*a;ctx.lineCap='round';ctx.beginPath();
+  for(let i=0;i<n;i++){const p=clamp(prog*n-i,0,1);if(p<=0)continue;const e=segEndpoints(c.segs[i][0],c.segs[i][1],cap);if(!e)continue;ctx.moveTo(e[0],e[1]);ctx.lineTo(e[0]+(e[2]-e[0])*p,e[1]+(e[3]-e[1])*p)}ctx.stroke()};
+ drawPass(7,'rgba(110,150,255,1)',.10,5);drawPass(3.2,'rgba(150,190,255,1)',.22,5);drawPass(1.35,'rgba(215,232,255,1)',.95,5);
+ ctx.globalAlpha=1;
+ // 北斗七星 → 北極星 の指標線
+ if(c.id==='UMa'&&prog>.85){const m=byKey.merak,d=byKey.dubhe,pl=byKey.polaris;if(projJ([d.x,d.y,d.z])){const x1=PX,y1=PY;if(projJ([pl.x,pl.y,pl.z])){const x2=PX,y2=PY;
+   ctx.setLineDash([3,6]);ctx.lineWidth=1.1;ctx.strokeStyle=`rgba(255,225,160,${.7*a*clamp((prog-.85)*6,0,1)})`;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.setLineDash([])}}}
+ if(c.id==='UMa'&&prog>.9){const pl=byKey.polaris;if(projJ([pl.x,pl.y,pl.z])){ctx.font='12px "Hiragino Mincho ProN","Yu Mincho","Noto Serif JP","Noto Serif CJK JP",serif';ctx.textAlign='left';ctx.fillStyle=`rgba(255,235,190,${.9*a*clamp((prog-.9)*10,0,1)})`;ctx.shadowColor='rgba(0,0,0,.8)';ctx.shadowBlur=6;ctx.fillText('北極星',PX+12,PY+4);ctx.shadowBlur=0}}
+ // 星のリング・名前
+ ctx.textAlign='left';ctx.font='12px "Hiragino Mincho ProN","Yu Mincho","Noto Serif JP","Noto Serif CJK JP",serif';
+ const boxes=[],order=c.stars.map((s,i)=>[s,i]).sort((a,b)=>a[0].mag-b[0].mag);
+ for(const [s,i] of order){if(!projJ([s.x,s.y,s.z]))continue;if(PX<-20||PX>W+20||PY<-20||PY>H+20)continue;
+  const ap=clamp((prog*1.15-i/c.stars.length*.9)*3,0,1)*a;ctx.strokeStyle=`rgba(200,225,255,${.45*ap})`;ctx.lineWidth=.9;ctx.beginPath();ctx.arc(PX,PY,9.5-s.mag*.6,0,TAU);ctx.stroke();
+  if(s.jp&&s.mag<2.9&&ap>.05){const w=ctx.measureText(s.jp).width,bx=PX+14,by=PY-9;let hit=false;for(const q of boxes)if(bx<q[0]+q[2]+4&&bx+w+4>q[0]&&by-12<q[1]+q[3]&&by+4>q[1]){hit=true;break}
+   if(hit)continue;boxes.push([bx,by-11,w,15]);ctx.fillStyle=`rgba(235,243,255,${.85*ap})`;ctx.shadowColor='rgba(0,0,0,.8)';ctx.shadowBlur=6;ctx.fillText(s.jp,bx,by);ctx.shadowBlur=0}}
+}
+function drawNames(){if(!S.names)return;const vis=clamp((FR.lim-2)/3,0,1);if(vis<.05)return;
+ ctx.textAlign='center';ctx.font='13px "Hiragino Mincho ProN","Yu Mincho","Noto Serif JP","Noto Serif CJK JP",serif';ctx.shadowColor='rgba(0,0,0,.9)';ctx.shadowBlur=6;
+ for(const c of cons){let sx=0,sy=0,n=0,my=-1e9,mn=1e9;for(const s of c.stars){if(projJ([s.x,s.y,s.z])&&PX>-40&&PX<W+40&&PY>-40&&PY<H+40){sx+=PX;sy+=PY;n++;if(PY>my)my=PY;if(PY<mn)mn=PY}}
+  if(n<Math.max(2,c.stars.length*.4))continue;const ht=FR.M[6]*c.cv[0]+FR.M[7]*c.cv[1]+FR.M[8]*c.cv[2];if(ht<.08)continue;
+  ctx.fillStyle=`rgba(190,212,255,${.62*vis})`;ctx.fillText(c.name.replace(/（.*）/,''),sx/n,my+22)}
+ ctx.textAlign='left';ctx.font='11px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
+ for(const s of VIS){if(s.jp&&s.mag<1.6&&s.U>.05){ctx.fillStyle=`rgba(225,235,255,${.6*vis})`;ctx.fillText(s.jp,s.sx+9,s.sy+14)}}
+ ctx.shadowBlur=0;ctx.textAlign='left'}
+/* ===================== moon / planets ===================== */
+function buildMoonTex(){const N=256,c=document.createElement('canvas');c.width=c.height=N;const g=c.getContext('2d'),im=g.createImageData(N,N),d=im.data,r=mulberry(99);
+ const craters=[];for(let i=0;i<70;i++)craters.push([r()*2-1,r()*2-1,.02+Math.pow(r(),2.4)*.09]);
+ for(let j=0;j<N;j++)for(let i=0;i<N;i++){const x=(i+.5)/N*2-1,y=(j+.5)/N*2-1,rr=Math.hypot(x,y),o=(j*N+i)*4;if(rr>1){d[o+3]=0;continue}
+  const z=Math.sqrt(1-rr*rr);let v=.9+.05*fbm3(x*18+3,y*18,z*18,3);
+  const mare=fbm3(x*1.7+11,y*1.7+4,z*1.7,3);const m=smooth(.5,.68,mare);v*=1-.3*m;
+  for(const k of craters){const dd=Math.hypot(x-k[0],y-k[1]);if(dd<k[2]*1.3){const t=dd/k[2];if(t<1)v*=1-.07*(1-t);else v*=1+.06*(1.3-t)*3.3}}
+  const limb=Math.pow(z,.22);v*=.62+.38*limb;const L=v*232;d[o]=L;d[o+1]=L*.985;d[o+2]=L*.95;d[o+3]=255}
+ g.putImageData(im,0,0);MOON.tex=c;
+ let prev=c;MOON.mips=[c];for(const n of [128,64,32]){const m=document.createElement('canvas');m.width=m.height=n;const mg=m.getContext('2d');mg.imageSmoothingQuality='high';mg.drawImage(prev,0,0,n,n);MOON.mips.push(m);prev=m}}
+function moonTexFor(px){const m=MOON.mips;return px>180?m[0]:px>90?m[1]:px>45?m[2]:m[3]}
+buildMoonTex();
+function drawMoon(){
+ if(FR.moonAlt<-3)return;const h=FR.moonH;if(!projH(h))return;const mx=PX,my=PY;
+ const rpx=Math.max(8.5,FR.R*D2R*.2625*2.9);if(mx<-rpx*4||mx>W+rpx*4||my<-rpx*4||my>H+rpx*4)return;
+ // 明るい側の向き
+ const sh=FR.sunH,dp=sh[0]*h[0]+sh[1]*h[1]+sh[2]*h[2];let tx=sh[0]-dp*h[0],ty=sh[1]-dp*h[1],tz=sh[2]-dp*h[2];const tl=Math.hypot(tx,ty,tz)||1;
+ const h2=normv([h[0]+.02*tx/tl,h[1]+.02*ty/tl,h[2]+.02*tz/tl]);let ang=0;if(projH(h2))ang=Math.atan2(PY-my,PX-mx);
+ const k=FR.moonK,c=FR.moonC; // c=cos(位相角) 満月で1
+ const ext=clamp(FR.moonAlt/12,.3,1);const vis=clamp((FR.sunAlt<-4?1:1-smooth(-4,3,FR.sunAlt)),0,1);
+ ctx.save();ctx.translate(mx,my);
+ const gl=ctx.createRadialGradient(0,0,rpx*.8,0,0,rpx*7);const ga=(.06+.2*k)*vis*ext;gl.addColorStop(0,`rgba(190,205,240,${ga})`);gl.addColorStop(.25,`rgba(150,170,225,${ga*.3})`);gl.addColorStop(1,'rgba(120,140,210,0)');
+ ctx.fillStyle=gl;ctx.beginPath();ctx.arc(0,0,rpx*7,0,TAU);ctx.fill();
+ ctx.rotate(ang);
+ // 地球照
+ const mt=moonTexFor(rpx*2*dpr);ctx.globalAlpha=.07*vis;ctx.drawImage(mt,-rpx,-rpx,rpx*2,rpx*2);ctx.globalAlpha=1;
+ ctx.save();ctx.beginPath();ctx.arc(0,0,rpx,-PI/2,PI/2,false);
+ const N=28;for(let i=0;i<=N;i++){const s=i/N*PI;ctx.lineTo(-rpx*c*Math.sin(s),rpx*Math.cos(s))}ctx.closePath();ctx.clip();
+ ctx.globalAlpha=vis*(.55+.45*ext);ctx.drawImage(mt,-rpx,-rpx,rpx*2,rpx*2);ctx.restore();
+ ctx.globalAlpha=1;ctx.restore();
+}
+function drawPlanets(){
+ for(const p of FR.planets){p.vis=false;const U=FR.M[6]*p.v[0]+FR.M[7]*p.v[1]+FR.M[8]*p.v[2];if(U<.01)continue;if(!projJ(p.v))continue;
+  const vis=clamp((FR.lim-p.mag)/1.2,0,1)*(.3+.7*smooth(0,.22,U));p.sx=PX;p.sy=PY;p.U=U;p.vis=vis>.05;if(vis<.03)continue;
+  if(PX<-20||PX>W+20||PY<-20||PY>H+20)continue;
+  const tw=1+(.1*Math.exp(-U*7)+.03)*Math.sin(S.T*3.1+p.mag*5);
+  const zf=clamp(Math.pow(70/S.fov,.35),.8,1.7);const r=clamp(1.2+(1.2-p.mag)*.33,1,3.6)*zf;const box=r*2*2.6;
+  const gr=ctx.createRadialGradient(PX,PY,0,PX,PY,box/2),c=p.rgb;gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(.1,'rgba(255,255,255,.9)');gr.addColorStop(.2,`rgba(${c[0]},${c[1]},${c[2]},.55)`);gr.addColorStop(.5,`rgba(${c[0]},${c[1]},${c[2]},.1)`);gr.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0)`);
+  ctx.globalAlpha=clamp(vis*tw,0,1);ctx.fillStyle=gr;ctx.beginPath();ctx.arc(PX,PY,box/2,0,TAU);ctx.fill();ctx.globalAlpha=1;
+  if(S.names&&vis>.3){ctx.font='11px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';ctx.fillStyle=`rgba(255,235,200,${.7*vis})`;ctx.shadowColor='rgba(0,0,0,.9)';ctx.shadowBlur=5;ctx.textAlign='left';ctx.fillText(p.jp,PX+10,PY+14);ctx.shadowBlur=0}}
+}
+
+/* ===================== shooting stars ===================== */
+function spawnShoot(force){
+ for(let tries=0;tries<12;tries++){const sx=W*(.12+.76*Math.random()),sy=H*(.08+.5*Math.random());const h=unproj(sx,sy);if(h[2]<.3)continue;
+  let a=[Math.random()-.5,Math.random()-.5,Math.random()-.5];let dx=h[1]*a[2]-h[2]*a[1],dy=h[2]*a[0]-h[0]*a[2],dz=h[0]*a[1]-h[1]*a[0];const l=Math.hypot(dx,dy,dz)||1;dx/=l;dy/=l;dz/=l;
+  if(dz>.6){continue}
+  const s={h0:h,d:[dx,dy,dz],t0:S.T,dur:.7+Math.random()*.6,ang:(14+Math.random()*16)*D2R,tail:(7+Math.random()*7)*D2R,hue:Math.random()};S.shoots.push(s);
+  AUD.shoot();return s}return null}
+function drawShoots(){
+ for(let i=S.shoots.length-1;i>=0;i--){const s=S.shoots[i];const p=(S.T-s.t0)/s.dur;if(p>1.35){S.shoots.splice(i,1);continue}
+  const pe=1-Math.pow(1-clamp(p,0,1),1.6);const fade=p<1?1:1-(p-1)/.35;
+  const hp=(a)=>{const ca=Math.cos(a),sa=Math.sin(a);return[s.h0[0]*ca+s.d[0]*sa,s.h0[1]*ca+s.d[1]*sa,s.h0[2]*ca+s.d[2]*sa]};
+  const a0=pe*s.ang,tl=s.tail*clamp(p*3,0,1)*(p>1?clamp(1-(p-1)*2.5,0,1):1);
+  const N=14;let px0=0,py0=0,ok=true;ctx.lineCap='round';
+  for(let k=N;k>=0;k--){const a=a0-tl*k/N;const h=hp(a);if(!projH(h)){ok=false;break}
+   if(k<N){const t=1-k/N;ctx.strokeStyle=`rgba(${220+35*s.hue|0},${232},255,${(.9*t*t*fade).toFixed(3)})`;ctx.lineWidth=.6+2.2*t;ctx.beginPath();ctx.moveTo(px0,py0);ctx.lineTo(PX,PY);ctx.stroke()}
+   px0=PX;py0=PY}
+  if(ok&&p<1.05){const g=ctx.createRadialGradient(px0,py0,0,px0,py0,13);g.addColorStop(0,`rgba(255,255,255,${.95*fade})`);g.addColorStop(.25,`rgba(210,230,255,${.45*fade})`);g.addColorStop(1,'rgba(180,210,255,0)');ctx.fillStyle=g;ctx.beginPath();ctx.arc(px0,py0,13,0,TAU);ctx.fill()}}
+}
+
+/* ===================== ground ===================== */
+function horizonPath(arr,off){ // 地平線ポリゴン(外側を塗る)
+ const N=SK.N;const sa=Math.sin,ca=Math.cos;ctx.beginPath();
+ const L=4e4;let first=true;
+ for(let i=0;i<=N;i++){const k=i%N,az=k*TAU/N,al=arr[k]*D2R;const c=Math.cos(al),h0=c*sa(az),h1=c*ca(az),h2=Math.sin(al)-off;
+  const r=FR.r,u=FR.u,f=FR.f;const px=h0*r[0]+h1*r[1]+h2*r[2],py=h0*u[0]+h1*u[1]+h2*u[2],pz=h0*f[0]+h1*f[1]+h2*f[2];
+  const kk=2*FR.R/Math.max(1+pz,1e-3);let x=FR.cx+kk*px,y=FR.cy-kk*py;x=clamp(x,-L,L);y=clamp(y,-L,L);
+  if(first){ctx.moveTo(x,y);first=false}else ctx.lineTo(x,y)}
+ ctx.closePath();ctx.rect(-L*1.5,-L*1.5,L*3,L*3)}
+function drawGround(){
+ const hz=Math.sin(FR.sunAlt*D2R);const dayK=smooth(-16,-2,FR.sunAlt);
+ const [Z,Hc]=twColors(FR.sunAlt);const night=1-dayK;
+ // 遠景の山
+ const fr=lerp(7,Hc[0]*.22,dayK*.8)+FR.moonWash*4,fg=lerp(11,Hc[1]*.24,dayK*.8)+FR.moonWash*5,fb=lerp(20,Hc[2]*.3,dayK*.8)+FR.moonWash*8;
+ horizonPath(SK.far,0);ctx.fillStyle=`rgb(${fr|0},${fg|0},${fb|0})`;ctx.fill('evenodd');
+ // 山の稜線のかすみ
+ ctx.strokeStyle=`rgba(${(Hc[0]*.6+40)|0},${(Hc[1]*.5+50)|0},${(Hc[2]*.5+80)|0},${.1+.18*dayK})`;ctx.lineWidth=1.2;
+ {const N=SK.N;ctx.beginPath();let st=false;for(let i=0;i<=N;i++){const k=i%N,az=k*TAU/N,al=SK.far[k]*D2R,c=Math.cos(al);if(!projE(c*Math.sin(az),c*Math.cos(az),Math.sin(al))){st=false;continue}
+   if(PX<-30||PX>W+30||PY<-30||PY>H+30){st=false;continue}if(!st){ctx.moveTo(PX,PY);st=true}else ctx.lineTo(PX,PY)}ctx.stroke()}
+ // 街の灯り
+ if(night>.2){const pz=FR.R*D2R;
+  for(const L of SK.lights){if(L[2]!==3)continue;const az=L[0]*D2R,al=L[1]*D2R,c=Math.cos(al);if(!projE(c*Math.sin(az),c*Math.cos(az),Math.sin(al)))continue;if(PX<-4||PX>W+4||PY<-4||PY>H+4)continue;
+   const tw=.7+.3*Math.sin(S.T*(.6+L[3]%1.7)+L[3]*9);const t=L[2];
+   const col=t===0?'255,214,140':t===1?'255,250,225':t===2?'150,200,255':'255,130,70';const sz=t===3?1.2:Math.max(1,pz*.1);
+   ctx.fillStyle=`rgba(${col},${(.55*tw*night).toFixed(3)})`;ctx.fillRect(PX-sz/2,PY-sz/2,sz,sz)}}
+ // 手前の木々・街
+ horizonPath(SK.near,0);ctx.fillStyle=`rgb(${(2+Hc[0]*.03*dayK)|0},${(3+Hc[1]*.03*dayK)|0},${(6+Hc[2]*.05*dayK)|0})`;ctx.fill('evenodd');
+ // 窓の灯り(手前)
+ if(night>.2){const pz=FR.R*D2R;let n=0;
+  for(const L of SK.lights){if(L[2]===3)continue;const az=L[0]*D2R,al=L[1]*D2R,c=Math.cos(al);if(!projE(c*Math.sin(az),c*Math.cos(az),Math.sin(al)))continue;if(PX<-4||PX>W+4||PY<-4||PY>H+4)continue;
+   const sz=Math.max(1,pz*.07);const col=L[2]===0?'255,205,120':L[2]===1?'255,245,210':'170,210,255';ctx.fillStyle=`rgba(${col},${(.7*night*(.75+.25*Math.sin(L[3]*5+S.T*.3))).toFixed(3)})`;ctx.fillRect(PX-sz/2,PY-sz/2,sz,sz)}}
+}
+/* ===================== audio ===================== */
+const AUD={ctx:null,master:null,rev:null,muted:store.get('pl_mute','0')==='1',started:false,chordI:0,nextChord:0,voices:[],
+ start(){if(this.started){if(this.ctx&&this.ctx.state==='suspended')this.ctx.resume();return}
+  const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;let c;try{c=new AC()}catch(e){return}this.ctx=c;this.started=true;
+  const m=c.createGain();m.gain.value=0;m.connect(c.destination);this.master=m;
+  // reverb
+  const len=Math.floor(c.sampleRate*3.6),buf=c.createBuffer(2,len,c.sampleRate);for(let ch=0;ch<2;ch++){const d=buf.getChannelData(ch);let lp=0;for(let i=0;i<len;i++){const t=i/len;lp+=(Math.random()*2-1-lp)*.35;d[i]=lp*Math.pow(1-t,2.6)}}
+  const cv=c.createConvolver();cv.buffer=buf;const rg=c.createGain();rg.gain.value=.9;cv.connect(rg);rg.connect(m);this.rev=cv;
+  // pad
+  const pad=c.createGain();pad.gain.value=.0;const lpf=c.createBiquadFilter();lpf.type='lowpass';lpf.frequency.value=720;lpf.Q.value=.4;pad.connect(lpf);lpf.connect(m);lpf.connect(cv);
+  const lfo=c.createOscillator(),lg=c.createGain();lfo.frequency.value=.045;lg.gain.value=240;lfo.connect(lg);lg.connect(lpf.frequency);lfo.start();
+  this.chords=[[73.42,146.83,220.0,329.63,369.99],[61.74,123.47,185.0,293.66,329.63],[98.0,196.0,246.94,293.66,369.99],[55.0,110.0,164.81,220.0,329.63]];
+  for(let i=0;i<5;i++){for(let k=0;k<2;k++){const o=c.createOscillator();o.type=k?'triangle':'sine';o.frequency.value=this.chords[0][i];o.detune.value=(k?7:-6)+(i-2)*2;const g=c.createGain();g.gain.value=k?.05:.1;o.connect(g);g.connect(pad);o.start();this.voices.push({o,i})}}
+  pad.gain.setTargetAtTime(.42,c.currentTime,6);this.pad=pad;this.nextChord=c.currentTime+22;
+  this.applyMute(true);if(c.state==='suspended')c.resume()},
+ applyMute(first){if(!this.master)return;const t=this.ctx.currentTime;this.master.gain.cancelScheduledValues(t);this.master.gain.setTargetAtTime(this.muted?0:.36,t,first?2.5:.25)},
+ setMuted(v){this.muted=v;store.set('pl_mute',v?'1':'0');this.applyMute(false)},
+ suspend(){if(this.ctx&&this.ctx.state==='running')this.ctx.suspend()},resume(){if(this.ctx&&this.ctx.state==='suspended'&&this.started)this.ctx.resume()},
+ tick(){if(!this.ctx||this.ctx.state!=='running')return;const t=this.ctx.currentTime;if(t>this.nextChord){this.chordI=(this.chordI+1)%this.chords.length;const ch=this.chords[this.chordI];for(const v of this.voices)v.o.frequency.setTargetAtTime(ch[v.i],t,3.5);this.nextChord=t+24}},
+ bell(f,vol,when){if(!this.ctx||this.muted||this.ctx.state!=='running')return;const c=this.ctx,t=c.currentTime+(when||0);
+  const out=c.createGain();out.gain.value=vol;out.connect(this.master);out.connect(this.rev);
+  [[1,1,3.8],[2.76,.28,2.2],[5.4,.1,1.2],[8.9,.04,.7]].forEach(p=>{const o=c.createOscillator();o.type='sine';o.frequency.value=f*p[0];const g=c.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(p[1],t+.006);g.gain.exponentialRampToValueAtTime(.0001,t+p[2]);o.connect(g);g.connect(out);o.start(t);o.stop(t+p[2]+.1)})},
+ shoot(){const sc=[880,987.77,1174.66,1318.51,1480];const f=sc[(Math.random()*sc.length)|0];this.bell(f,.12,0);this.bell(f*1.5,.05,.16)},
+ hl(){const sc=[587.33,740,880,1174.66];const i=(Math.random()*2)|0;this.bell(sc[i],.1,0);this.bell(sc[i+1],.07,.35);this.bell(sc[i+2],.06,.75)}};
+
+/* ===================== labels ===================== */
+const lab=$('label'),lname=$('lname'),lsub=$('lsub'),lnote=$('lnote');let labT=0,labSticky=false;
+function showLabel(name,sub,note,dur){lname.textContent=name;lsub.textContent=sub||'';lnote.textContent=note||'';lnote.style.display=note?'':'none';lab.classList.add('on');labT=dur||7;}
+function hideLabel(){lab.classList.remove('on');labT=0}
+
+/* ===================== tour / focus ===================== */
+function altMin(){const k=W<H?.78:.72;const need=(k*H-(W/2*0+H/2+S.cyOff*H))/(2*FR.R);return Math.max(3*D2R,2*Math.atan(need))}
+function conAlt(c){return FR.M[6]*c.cv[0]+FR.M[7]*c.cv[1]+FR.M[8]*c.cv[2]}
+function focusCon(c,fromTour){S.focus={con:c,t0:S.T,tour:!!fromTour,fadeT:0,start:S.T};
+ const note=c.story;const sub=c.aster?'アステリズム':`${c.maxmag.toFixed(1)}等星以上の星 ・ ${c.stars.length}個の星をたどります`;
+ showLabel(c.name,c.aster?'星のならび':'星座',note,fromTour?14:9);
+ AUD.hl()}
+const tourHist=[];
+function pickTour(){const cand=[];
+ for(const c of cons.concat(asters)){const u=conAlt(c);if(u<.3)continue; // 高度17°以上
+  if(c.stars.length<2)continue;let w=1+Math.min(c.stars.length,10)*.1+(c.maxmag<1.2?.4:0);if(c.aster)w*=.8;
+  const k=tourHist.indexOf(c.id);if(k>=0)w*=.04+.05*(tourHist.length-k)/tourHist.length*0;
+  cand.push([c,w])}
+ if(!cand.length){for(const c of cons){if(conAlt(c)>.1)cand.push([c,1])}}
+ if(!cand.length)return cons[2];
+ let tw=0;for(const x of cand)tw+=x[1];let r=Math.random()*tw;for(const x of cand){r-=x[1];if(r<=0)return x[0]}return cand[0][0]}
+function tourStep(dt){
+ if(!S.tour)return;if(S.T<S.tourPause)return;
+ if(FR.lim<3.2){if(S.focus&&S.focus.tour&&!S.focus.fadeT){S.focus.fadeT=S.T;hideLabel()}return}
+ if(!S.focus||!S.focus.tour){const c=pickTour();tourHist.push(c.id);if(tourHist.length>8)tourHist.shift();focusCon(c,true);return}
+ const f=S.focus,age=S.T-f.start;if(age>15&&!f.fadeT){f.fadeT=S.T;hideLabel()}
+ if(age>16.6){S.focus=null}}
+function followTour(dt){const f=S.focus;if(!(f&&f.tour&&S.tour&&S.T>=S.tourPause))return false;const c=f.con;
+ const hv=jToH(c.cv[0],c.cv[1],c.cv[2]);let ta=Math.atan2(hv[0],hv[1]),tl=Math.asin(clamp(hv[2],-1,1));
+ const tf=clamp(c.rad*R2D*(W<H?3.3:2.5)+6,34,95);
+ const lift=tf*.11*D2R*(W<H?1.1:.9);const talt=clamp(tl-lift*0+0,5*D2R,86*D2R);
+ const k=1-Math.exp(-dt*(f.arrive?.7:.5));
+ S.az+=angDiff(ta,S.az)*k;S.alt+=(talt-S.alt)*k;S.tfov+=(tf-S.tfov)*0;S.fov+=(tf-S.fov)*(1-Math.exp(-dt*.5));
+ if(Math.abs(angDiff(ta,S.az))<.04)f.arrive=true;
+ S.cyOff+=((W<H?-.1:-.06)-S.cyOff)*(1-Math.exp(-dt*1.2));return true}
+
+/* ===================== input ===================== */
+const ptrs=new Map();let tapInfo=null,pinch0=0,fov0=0;let lastInput=0;
+function poke(){S.uiT=0;S.tourPause=Math.max(S.tourPause,S.T+25)}
+function userTouched(){S.uiT=0}
+function pauseTour(){S.tourPause=S.T+26;if(S.focus&&S.focus.tour&&!S.focus.fadeT){S.focus.fadeT=S.T;hideLabel()}}
+cv.addEventListener('pointerdown',e=>{try{cv.setPointerCapture(e.pointerId)}catch(_){}AUD.start();ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,px:e.clientX,py:e.clientY});
+ S.uiT=0;S.vx=S.vy=0;
+ if(ptrs.size===1)tapInfo={x:e.clientX,y:e.clientY,t:performance.now(),moved:0};else if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch0=Math.hypot(a.x-b.x,a.y-b.y);fov0=S.fov;if(tapInfo)tapInfo.moved=99}});
+cv.addEventListener('pointermove',e=>{const p=ptrs.get(e.pointerId);if(!p)return;const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;S.uiT=0;
+ if(ptrs.size===1){if(tapInfo){tapInfo.moved=Math.max(tapInfo.moved,Math.hypot(e.clientX-tapInfo.x,e.clientY-tapInfo.y))}
+  if(tapInfo&&tapInfo.moved>6){pauseTour();const R=FR.R,ca=Math.max(Math.cos(S.alt),.3);S.az-=dx/(R*ca)*(S.fov>90?1:1);S.alt+=dy/R;S.az=((S.az%TAU)+TAU)%TAU;S.alt=clamp(S.alt,3*D2R,89*D2R);S.vx=-dx/(R*ca);S.vy=dy/R;S.lastMove=performance.now()}}
+ else if(ptrs.size===2){const [a,b]=[...ptrs.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(pinch0>10){pauseTour();S.fov=clamp(fov0*pinch0/d,26,118);S.tfov=S.fov}}});
+function endPtr(e){const p=ptrs.get(e.pointerId);if(!p)return;ptrs.delete(e.pointerId);if(performance.now()-(S.lastMove||0)>90){S.vx=S.vy=0}
+ if(tapInfo&&ptrs.size===0&&tapInfo.moved<=6&&performance.now()-tapInfo.t<500&&e.type==='pointerup'){doTap(tapInfo.x,tapInfo.y)}
+ if(ptrs.size===0){tapInfo=null;}}
+cv.addEventListener('pointerup',e=>{AUD.start();endPtr(e)});document.addEventListener('touchend',()=>AUD.start(),{passive:true});document.addEventListener('click',()=>AUD.start());cv.addEventListener('pointercancel',endPtr);
+cv.addEventListener('wheel',e=>{e.preventDefault();pauseTour();S.uiT=0;S.fov=clamp(S.fov*Math.exp(e.deltaY*.0012),26,118);S.tfov=S.fov},{passive:false});
+cv.addEventListener('mousemove',()=>{S.uiT=0});
+['gesturestart','gesturechange','selectstart','contextmenu'].forEach(n=>document.addEventListener(n,e=>e.preventDefault()));
+document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
+function doTap(x,y){
+ S.uiT=0;pauseTour();
+ // 惑星・月
+ let best=null,bd=26;
+ for(const p of FR.planets){if(!p.vis||p.sx===undefined)continue;const d=Math.hypot(p.sx-x,p.sy-y);if(d<bd){bd=d;best={type:'pl',p}}}
+ if(FR.moonAlt>-2&&projH(FR.moonH)){const d=Math.hypot(PX-x,PY-y);if(d<Math.max(24,FR.R*D2R*.6)&&d<bd+8){bd=d;best={type:'moon'}}}
+ for(const s of VIS){if(s.mag>ml()+.2)continue;const d=Math.hypot(s.sx-x,s.sy-y)-(s.mag<2?5:0)-(s.jp?3:0);if(d<bd&&d<24){bd=d;best={type:'star',s}}}
+ if(best){showBest(best);return}
+ // 星座(線に近い)
+ let bc=null,bcd=22;for(const c of cons.concat(asters)){for(const sg of c.segs){const e=segEndpoints(sg[0],sg[1],0);if(!e)continue;const d=distSeg(x,y,e);if(d<bcd){bcd=d;bc=c}}}
+ if(bc){focusCon(bc,false);return}
+ // 天の川 / 星雲
+ const h=unproj(x,y);if(h[2]>.02){const Qm=FR.Q;// camera->gal : use direction in camera coords
+  const r=FR.r,u=FR.u,f=FR.f;const cxv=h[0]*r[0]+h[1]*r[1]+h[2]*r[2],cyv=h[0]*u[0]+h[1]*u[1]+h[2]*u[2],czv=h[0]*f[0]+h[1]*f[1]+h[2]*f[2];
+  const gz=Qm[6]*cxv+Qm[7]*cyv+Qm[8]*czv;
+  for(const fz of FUZ){if(projJ(fz.v)&&Math.hypot(PX-x,PY-y)<Math.max(26,fz.a*FR.R*D2R*.6)&&FR.lim>4.8){const o=OBJ_NOTE[fz.id];showLabel(o[0],'',o[1],8);AUD.bell(1318.5,.05);return}}
+  if(Math.abs(gz)<.14&&FR.lim>4.8){const o=OBJ_NOTE.MW;showLabel(o[0],'',o[1],8);return}}
+ hideLabel()}
+function ml(){return FR.lim}
+function distSeg(px,py,e){const dx=e[2]-e[0],dy=e[3]-e[1],L2=dx*dx+dy*dy||1;let t=((px-e[0])*dx+(py-e[1])*dy)/L2;t=clamp(t,0,1);return Math.hypot(px-(e[0]+dx*t),py-(e[1]+dy*t))}
+const MAGSTR=m=>(m<0?'−'+(-m).toFixed(1):m.toFixed(1))+'等星';
+const PNOTE={mercury:'太陽のすぐそばをまわる、いちばん内側の惑星。夕方か明け方に、低い空でわずかに見えます。',venus:'「宵の明星」「明けの明星」。月の次に明るく見える、地球のとなりの惑星です。',mars:'赤い星。地球との距離が大きく変わるため、明るさもずいぶん変化します。',jupiter:'太陽系最大の惑星。小さな望遠鏡でも、縞模様と4つの衛星が見えます。',saturn:'環をもつ惑星。ゆっくり動くので、星座の中でもほとんど位置が変わりません。'};
+function showBest(b){
+ if(b.type==='star'){const s=b.s;
+  if(PLEI.has(s.key)){const o=OBJ_NOTE.M45;showLabel(o[0],'おうし座 ・ 約440光年',o[1],8);AUD.bell(1174.66,.05);return}
+  const cn=CONNAME[s.con]||'';const nt=NOTE[s.key];const name=s.jp||`${cn}の星`;
+  const sub=[cn,MAGSTR(s.mag),nt&&nt[0]?`約${nt[0]}光年`:''].filter(Boolean).join(' ・ ');
+  let note=nt?nt[1]:(CONINFO[s.con]?CONINFO[s.con][3]:'');showLabel(name,sub,note,8);AUD.bell(1174.66*(s.mag<1?1:1.125),.05);
+  const c=s.conObj||conById[s.con];if(c&&!c.aster){S.focus={con:c,t0:S.T,tour:false,fadeT:0,start:S.T,quiet:true}}return}
+ if(b.type==='pl'){const p=b.p;showLabel(p.jp,`惑星 ・ 約${MAGSTR(p.mag).replace('等星','等')}`,PNOTE[p.key]+'（位置はかんたんな計算によるおおよそです）',8);AUD.bell(987.77,.05);return}
+ if(b.type==='moon'){const k=FR.moonK,ph=moonPhaseName(k,FR.moonC);showLabel('月',`${ph} ・ 輝いている部分 ${Math.round(k*100)}%`,'実際の日付から計算した月の満ち欠けです。',8);AUD.bell(783.99,.05)}}
+function moonPhaseName(k,c){const j=jdOf(S.t);const sv=sunVec(j),mv=moonVec(j).v;
+ // 月齢の向き：黄道経度差
+ const ls=Math.atan2(sv[1],sv[0]),lm=Math.atan2(mv[1],mv[0]);let d=((lm-ls)*R2D%360+360)%360;
+ const n=['新月','三日月','上弦の月','十三夜ごろ','満月','十八夜ごろ','下弦の月','二十六夜ごろ'];return n[Math.round(d/45)%8]}
+
+/* ===================== buttons ===================== */
+function refreshButtons(){$('bLines').classList.toggle('off',!S.lines);$('bNames').classList.toggle('off',!S.names);$('bSnd').textContent=AUD.muted?'音 OFF':'音 ON';$('bSnd').classList.toggle('off',AUD.muted);
+ $('bSpeed').textContent=SPEEDS[S.speedIdx].n;$('bTour').classList.toggle('off',!S.tour);$('bTour').textContent=S.tour?'自動ツアー':'ツアー OFF';$("bSeason").textContent=SEAS[S.seas].n;layoutUI()}
+function btn(id,fn){$(id).addEventListener('click',e=>{e.stopPropagation();AUD.start();S.uiT=0;fn();refreshButtons()})}
+btn('bLines',()=>{S.lines=!S.lines;store.set('pl_lines',S.lines?'1':'0')});
+btn('bNames',()=>{S.names=!S.names;store.set('pl_names',S.names?'1':'0')});
+btn('bSpeed',()=>{S.speedIdx=(S.speedIdx+1)%SPEEDS.length;S.rate=SPEEDS[S.speedIdx].r;store.set('pl_speed',S.speedIdx)});
+btn('bSnd',()=>{AUD.setMuted(!AUD.muted)});
+btn('bTour',()=>{S.tour=!S.tour;store.set('pl_tour',S.tour?'1':'0');if(S.tour){S.tourPause=0;S.focus=null}else{if(S.focus&&S.focus.tour){S.focus=null;hideLabel()}}});
+btn('bSeason',()=>{setSeason((S.seas+1)%SEAS.length)});
+function setSeason(i){S.seas=i;let t;const now=new Date(),yr=now.getFullYear();
+ if(i===0){t=nightStart(Date.now(),-13)}
+ else{const s=SEAS[i];let best=null;// 月が三日月ごろ(夕方に西)になる日を探す
+  for(let dd=-12;dd<=12;dd++){const tt=jst(yr,s.mo,s.d+dd,Math.floor(s.h),(s.h%1)*60);const mi=moonIllum(tt);const sc=Math.abs(mi.k-.2)+ (moonWaxing(tt)?0:.3);if(!best||sc<best[0])best=[sc,tt]}
+  t=best[1]}
+ S.t=t;S.focus=null;hideLabel();S.fade=0;S.fadeDir=0}
+function moonWaxing(ms){const j=jdOf(ms),sv=sunVec(j),mv=moonVec(j).v;const ls=Math.atan2(sv[1],sv[0]),lm=Math.atan2(mv[1],mv[0]);const d=((lm-ls)*R2D%360+360)%360;return d<180}
+
+/* ===================== main loop ===================== */
+let last=0,raf=0,gapEma=16.7,perfEma=16,perfN=0,lowCnt=0,hiCnt=0;
+function advanceTime(dt){
+ if(S.frozen)return;S.t+=dt*1000*S.rate;
+ // 夜明けが近づいたら、次の夕暮れまで場面転換
+ if(!S.allowDay&&S.fadeDir===0){const na=sunAltOf(S.t);if(na>-5.5&&na>FR.sunAlt){S.fadeDir=1}}
+ if(S.fadeDir===1){S.fade+=dt/1.4;if(S.fade>=1){S.fade=1;S.t=nextDusk(S.t,-13);S.fadeDir=-1;S.focus=null;hideLabel()}}
+ else if(S.fadeDir===-1){S.fade-=dt/1.8;if(S.fade<=0){S.fade=0;S.fadeDir=0}}}
+function updateClock(){const d=new Date(S.t+9*3600000);const mo=d.getUTCMonth()+1,dd=d.getUTCDate(),hh=String(d.getUTCHours()).padStart(2,'0'),mm=String(d.getUTCMinutes()).padStart(2,'0');
+ const s=`${mo}月${dd}日　${hh}:${mm}`;const el=$('clock');if(el._s!==s){el.textContent=s;el._s=s}}
+function update(dt){
+ S.T+=dt;S.uiT+=dt;
+ const prevSun=FR.sunAlt;FR.prevSun=prevSun===undefined?-30:prevSun;
+ advanceTime(dt);
+ frameSetup();
+ // 慣性
+ if(ptrs.size===0&&(Math.abs(S.vx)>1e-5||Math.abs(S.vy)>1e-5)){S.az+=S.vx*dt*60;S.alt=clamp(S.alt+S.vy*dt*60,3*D2R,89*D2R);S.az=((S.az%TAU)+TAU)%TAU;const d=Math.exp(-dt*6);S.vx*=d;S.vy*=d}
+ {const f=S.focus;if(f&&!f.tour){if(!f.fadeT&&S.T-f.start>10)f.fadeT=S.T;if(f.fadeT&&S.T-f.fadeT>1.8)S.focus=null}}
+ tourStep(dt);
+ const following=ptrs.size===0&&followTour(dt);
+ if(!following){S.cyOff+=(0-S.cyOff)*(1-Math.exp(-dt*1.5))}
+ S.az=((S.az%TAU)+TAU)%TAU;if(!S.dbg){const am=Math.min(altMin(),80*D2R);if(S.alt<am)S.alt+=(am-S.alt)*(1-Math.exp(-dt*5))}S.alt=clamp(S.alt,3*D2R,89*D2R);
+ if(labT>0){labT-=dt;if(labT<=0&&!(S.focus&&S.focus.tour&&!S.focus.fadeT))lab.classList.remove('on')}
+ // 流れ星
+ S.nextShoot-=dt;if(S.nextShoot<=0&&FR.lim>4.5&&!document.hidden){spawnShoot();S.nextShoot=9+Math.random()*22}
+ AUD.tick();updateClock();
+ if(S.uiT>4.8)document.body.classList.add('idle');else document.body.classList.remove('idle');
+ $('bar').classList.toggle('on',S.uiT<4.2)}
+function stage(n,f){if(!S.prof){f();return}const a=performance.now();f();PROF[n]=(PROF[n]||0)+performance.now()-a}
+let skyLast=null,skyFrames=0;
+function skyDirty(){const l=skyLast;if(!l||S.fade>0||skyFrames>24)return true;const d=Math.abs(angDiff(S.az,l.az))*Math.cos(S.alt)+Math.abs(S.alt-l.alt);const dt=Math.abs(S.t-l.t)/86400000*TAU;
+ return FR.R*(d+dt)>1.6||Math.abs(FR.R-l.R)>l.R*.003||Math.abs(FR.cy-l.cy)>.6||l.W!==W||l.H!==H||l.q!==Q.lvl}
+function drawSky(){if(skyDirty()){skyPass();skyLast={az:S.az,alt:S.alt,t:S.t,R:FR.R,cy:FR.cy,W,H,q:Q.lvl};skyFrames=0}else{skyFrames++;ctx.imageSmoothingEnabled=true;ctx.drawImage(bcv,0,0,bw,bh,0,0,bw*sc,bh*sc)}}
+function draw(){
+ stage('sky',drawSky);stage('fuzzy',drawFuzzy);stage('stars',drawStars);stage('lines',drawLines);stage('hl',drawHighlight);stage('names',drawNames);stage('moon',drawMoon);stage('planets',drawPlanets);stage('shoots',drawShoots);stage('ground',drawGround);
+ if(S.fade>0){ctx.fillStyle=`rgba(2,4,10,${clamp(S.fade,0,1)})`;ctx.fillRect(0,0,W,H)}}
+function frame(now){raf=requestAnimationFrame(frame);if(S.paused){last=now;return}let dt=(now-last)/1000;last=now;if(!(dt>0))return;if(dt>.1)dt=.1;
+ gapEma=gapEma*.96+dt*1000*.04;const t0=performance.now();ctx.setTransform(dpr,0,0,dpr,0,0);update(dt);draw();
+ const el=performance.now()-t0;perfEma=perfEma*.95+el*.05;perfN++;
+ if(perfN>90){ if((perfEma>13||gapEma>24)&&Q.lvl>0){lowCnt++;if(lowCnt>2){setQuality(Q.lvl-1);lowCnt=0;perfN=0;perfEma=8;gapEma=16.7}}else lowCnt=0;
+  if(perfEma<5&&Q.lvl<2&&MOBILE===false&&perfN>400){hiCnt++;if(hiCnt>3){setQuality(Q.lvl+1);hiCnt=0;perfN=0}}}
+}
+const MOBILE=/iPhone|iPad|Android|Mobile/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&innerWidth<900);
+function init(){
+ setQuality(MOBILE?1:2);
+ S.fov=S.tfov=W<H?62:78;
+ S.t=nightStart(Date.now(),-13);S.az=190*D2R;S.alt=(W<H?50:38)*D2R;
+ refreshButtons();
+ addEventListener('resize',resize);addEventListener('orientationchange',()=>setTimeout(resize,200));
+ document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelAnimationFrame(raf);AUD.suspend()}else{last=performance.now();AUD.resume();cancelAnimationFrame(raf);raf=requestAnimationFrame(frame)}});
+ if(!store.get('pl_seen',0)){store.set('pl_seen','1');setTimeout(()=>{$('hint').classList.add('on');setTimeout(()=>$('hint').classList.remove('on'),5500)},1800)}
+ FR.prevSun=-30;frameSetup();last=performance.now();raf=requestAnimationFrame(frame)}
+window.__pl={S,FR,Q,AUD,real,cons,byKey,setQuality,
+ setTime(y,mo,d,h,mi){S.t=jst(y,mo-1,d,h,mi||0);S.frozen=true;S.allowDay=true;S.fadeDir=0;S.fade=0},
+ setView(az,alt,fov){S.dbg=true;S.az=az*D2R;S.alt=alt*D2R;if(fov){S.fov=S.tfov=fov}},
+ setSeason,freeze(v){S.frozen=v!==false},
+ step(n,dt){dt=dt||1/30;for(let i=0;i<n;i++){ctx.setTransform(dpr,0,0,dpr,0,0);update(dt);draw()}},
+ tourOff(){S.tour=false;S.focus=null;hideLabel();refreshButtons()},
+ tourOn(){S.tour=true;S.tourPause=0;refreshButtons()},
+ focus(id){const c=conById[id]||asters.find(a=>a.id===id);S.tourPause=S.T+9999;S.focus=null;focusCon(c,false);S.focus.t0=S.T-5;return c},
+ shoot(){return spawnShoot(true)},
+ aa(key){const s=byKey[key];const h=jToH(s.x,s.y,s.z);return{az:((Math.atan2(h[0],h[1])*R2D)+360)%360,alt:Math.asin(h[2])*R2D}},
+ conAA(id){const c=conById[id];const h=jToH(c.cv[0],c.cv[1],c.cv[2]);return{az:((Math.atan2(h[0],h[1])*R2D)+360)%360,alt:Math.asin(h[2])*R2D}},
+ planetsAA(){return FR.planets.map(p=>{const h=jToH(p.v[0],p.v[1],p.v[2]);return{n:p.key,az:((Math.atan2(h[0],h[1])*R2D)+360)%360,alt:Math.asin(h[2])*R2D,mag:p.mag}})},
+ moonAA(){const h=FR.moonH;return{az:((Math.atan2(h[0],h[1])*R2D)+360)%360,alt:Math.asin(h[2])*R2D,k:FR.moonK}},
+ sunAlt(){return FR.sunAlt},
+ moonXY(){return projH(FR.moonH)?[PX,PY]:null},
+ starXY(k){const s=byKey[k];return projJ([s.x,s.y,s.z])?[PX,PY]:null},
+ tap(x,y){doTap(x,y)},
+ perf(){return{ema:perfEma,q:Q.lvl}},PROF,prof(n){S.prof=true;for(const k in PROF)delete PROF[k];const a=performance.now();for(let i=0;i<n;i++){ctx.setTransform(dpr,0,0,dpr,0,0);const t=performance.now();update(1/60);const u=performance.now()-t;PROF.update=(PROF.update||0)+u;draw()}const tot=performance.now()-a;S.prof=false;const o={};for(const k in PROF)o[k]=+(PROF[k]/n).toFixed(2);o.total=+(tot/n).toFixed(2);return o}};
+init();
+})();
+</script>
+</body>
+</html>
